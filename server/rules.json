@@ -29,5 +29,52 @@
     "title": "File Not Found",
     "description": "The specified file or directory does not exist.",
     "actions": []
+  },
+  {
+    "id": "file_not_found_pwsh",
+    "regex": "Cannot find path '([^']+)' because it does not exist",
+    "title": "Path Not Found",
+    "description": "The specified path '{PATH}' does not exist.",
+    "actions": []
+  },
+  {
+    "id": "command_not_found_shell_bash",
+    "regex": "bash: ([^:]+): command not found",
+    "title": "Command Not Found",
+    "description": "The command '{COMMAND}' was not found.",
+    "actions": []
+  },
+  {
+    "id": "command_not_found_shell_zsh",
+    "regex": "zsh: command not found: ([^\\s]+)",
+    "title": "Command Not Found",
+    "description": "The command '{COMMAND}' was not found.",
+    "actions": []
+  },
+  {
+    "id": "command_not_found_shell_pwsh",
+    "regex": "The term '([^']+)' is not recognized",
+    "title": "Command Not Found",
+    "description": "The command '{COMMAND}' was not found.",
+    "actions": []
+  },
+  {
+    "id": "generic_subcommand_typo",
+    "regex": "([a-zA-Z0-9_-]+):[^\n]*'([^']+)' is not a [a-zA-Z0-9_-]+ command[\\s\\S]*?(?:The most similar command is|Did you mean this\\?|similar command is)[\\s]*([a-zA-Z0-9_-]+)",
+    "title": "Subcommand Typo",
+    "description": "The {1} subcommand '{2}' was not found. Did you mean '{3}'?",
+    "actions": [
+      {
+        "label": "Run '{1} {3}'",
+        "command": "{1} {3}"
+      }
+    ]
+  },
+  {
+    "id": "generic_subcommand_not_found",
+    "regex": "([a-zA-Z0-9_-]+):[^\n]*'([^']+)' is not a [a-zA-Z0-9_-]+ command",
+    "title": "Subcommand Not Found",
+    "description": "The {1} subcommand '{2}' was not found. See '{1} --help'.",
+    "actions": []
   }
 ]

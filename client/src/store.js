@@ -17,6 +17,9 @@ export const useStore = create(
       // Global errors array, each error now has an associated sessionId
       errors: [],
 
+      // System executables for autocomplete
+      executables: [],
+
       // --- Session Management ---
 
       createSession: () => set((state) => {
@@ -112,7 +115,10 @@ export const useStore = create(
       
       dismissError: (id) => set((state) => ({
         errors: state.errors.filter((e) => e.id !== id),
-      }))
+      })),
+
+      // --- Autocomplete Management ---
+      setExecutables: (executables) => set({ executables })
     }),
     {
       name: 'nexus-store', // unique name

@@ -2,11 +2,10 @@ import pty from 'node-pty';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
+import levenshtein from 'fast-levenshtein';
+import { getSystemExecutables } from './pathScanner.js';
 import { getGitStatus } from './gitMonitor.js';
-import rules from './rules.json' with { type: 'json' };
-
-// OSC 7 regex: Catches directory changes
-const OSC7_REGEX = /\x1b\]7;file:\/\/[^/]*(\/[^\x07]*)\x07/;
+import { analyzeCommandError } from './llmService.js';
 
 // ========================
 // PROTOCOL CONSTANTS
@@ -78,7 +77,8 @@ export function handleConnection(ws, req, { getCpuUsage }) {
     currentPwd: process.env.HOME || process.cwd(),
     history: [],
     historySize: 0,
-    dataListener: null
+    dataListener: null,
+    oscBuffer: ''
   };
   sessions.set(sessionId, session);
   attachListeners(session);
@@ -98,57 +98,140 @@ export function handleConnection(ws, req, { getCpuUsage }) {
   });
 }
 
+async function handleCommandFailed(session, payload) {
+  const { ws } = session;
+  const executables = getSystemExecutables();
+  const fullCmd = payload.cmd.trim();
+  const hasArguments = fullCmd.includes(' ');
+  const extractedCommand = fullCmd.split(' ')[0].trim();
+  
+  if (!extractedCommand) return;
+
+  const isCommandValid = executables.includes(extractedCommand);
+
+  let bestMatch = null;
+  let bestDist = Infinity;
+  const popularCommands = ['git', 'npm', 'docker', 'cd', 'ls', 'yarn', 'pnpm', 'npx', 'node', 'code', 'python', 'pip'];
+
+  // Phase 1: Local heuristics - ONLY for single-word commands that are not valid
+  // If there are arguments, we trust the LLM to fix the entire context.
+  if (!isCommandValid && !hasArguments) {
+    const allowedDist = extractedCommand.length <= 3 ? 1 : 2;
+
+    for (const cmd of executables) {
+      if (Math.abs(cmd.length - extractedCommand.length) > allowedDist) continue;
+      let dist = levenshtein.get(extractedCommand, cmd);
+      
+      if (popularCommands.includes(cmd)) {
+        dist -= 1.1; // Slight boost for popular ones
+      }
+
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestMatch = cmd;
+      }
+    }
+  }
+
+  const matchedRule = {
+    id: 'command_not_found_shell',
+    description: `Command failed with exit code ${payload.exitCode}.`,
+    actions: []
+  };
+
+  // Only suggest local fix if it's a single word and we are very confident (dist 1-2)
+  if (!isCommandValid && !hasArguments && bestMatch && bestDist <= 1.5) {
+    matchedRule.description = `Did you mean '${bestMatch}'?`;
+    matchedRule.actions = [{
+      label: `Run '${bestMatch}'`,
+      command: bestMatch
+    }];
+  } else {
+    // Phase 2: Everything else (valid commands with bad args, or complex multi-word typos) goes to LLM
+    matchedRule.description = `Analyzing error with local AI...`;
+    ws.send(META({ type: 'ERROR', rule: matchedRule }));
+
+    try {
+      const llmSuggestion = await analyzeCommandError(payload);
+      // Ensure LLM didn't just repeat the same failing command
+      if (llmSuggestion && llmSuggestion.toLowerCase() !== fullCmd.toLowerCase()) {
+        matchedRule.description = `AI Suggestion: '${llmSuggestion}'`;
+        matchedRule.actions = [{
+          label: `Run '${llmSuggestion}'`,
+          command: llmSuggestion
+        }];
+        ws.send(META({ type: 'ERROR', rule: matchedRule }));
+      } else {
+        // If LLM has no better idea, update the UI
+        matchedRule.description = `Command '${extractedCommand}' failed. Check your arguments.`;
+        ws.send(META({ type: 'ERROR', rule: matchedRule }));
+      }
+    } catch (error) {
+      console.error('LLM Analysis failed:', error.message);
+    }
+    return;
+  }
+
+  ws.send(META({ type: 'ERROR', rule: matchedRule }));
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // PTY listener setup
-// removeAllListeners is called before every reconnect, preventing accumulation.
 // ──────────────────────────────────────────────────────────────────────
 function attachListeners(session) {
   const { pty: ptyProcess, ws } = session;
 
   // Terminal -> Frontend
   session.dataListener = ptyProcess.onData((data) => {
-    // Catch OSC 7 broadcast: did the directory change?
-    const match = data.match(OSC7_REGEX);
-    if (match) {
-      let newPwd = decodeURIComponent(match[1]);
+    session.oscBuffer += data;
+    
+    // Process OSC 7 (Directory Change)
+    let match7;
+    const osc7Regex = /\x1b\]7;file:\/\/[^/]*(\/[^\x07]*)\x07/g;
+    while ((match7 = osc7Regex.exec(session.oscBuffer)) !== null) {
+      let newPwd = decodeURIComponent(match7[1]);
       if (os.platform() === 'win32' && newPwd.match(/^\/[a-zA-Z]:\//)) {
         newPwd = newPwd.slice(1);
       }
       session.currentPwd = newPwd;
-      // Write to terminal by cleaning the invisible OSC sequence
-      const cleanData = data.replace(OSC7_REGEX, '');
-      if (cleanData) {
-        // Add to history
-        session.history.push(cleanData);
-        session.historySize += cleanData.length;
-        while (session.historySize > 100000 && session.history.length > 1) {
-          session.historySize -= session.history.shift().length;
-        }
-        ws.send(cleanData);
-      }
       ws.send(META({ type: 'DIR_CHANGE', payload: newPwd }));
-
-      // Also update git status
       getGitStatus(newPwd, (gitInfo) => {
         ws.send(META({ type: 'GIT_STATUS', payload: gitInfo }));
       });
-      return;
+    }
+    session.oscBuffer = session.oscBuffer.replace(osc7Regex, '');
+
+    // Process OSC 999 (Structured Events from Shell Hook)
+    let match999;
+    const osc999Regex = /\x1b\]999;([^\x07]+)\x07/g;
+    while ((match999 = osc999Regex.exec(session.oscBuffer)) !== null) {
+      try {
+        const payload = JSON.parse(match999[1]);
+        if (payload.type === 'COMMAND_FAILED') {
+          handleCommandFailed(session, payload);
+        }
+      } catch (e) {
+        console.error('Failed to parse OSC 999 payload', e);
+      }
+    }
+    session.oscBuffer = session.oscBuffer.replace(osc999Regex, '');
+
+    // Prevent buffer memory leak
+    if (session.oscBuffer.length > 4000) {
+      session.oscBuffer = session.oscBuffer.slice(-2000);
     }
 
-    // Add to history
+    // History management
     session.history.push(data);
     session.historySize += data.length;
     while (session.historySize > 100000 && session.history.length > 1) {
       session.historySize -= session.history.shift().length;
     }
-
-    // Error rule match (Rule Engine)
-    const matchedRule = rules.find(r => data.includes(r.match));
-    if (matchedRule) {
-      ws.send(META({ type: 'ERROR', rule: matchedRule }));
-    }
-
-    ws.send(data); // RAW terminal output
+    
+    // Clean OSC 999 from the raw data sent to xterm.js (so user doesn't see JSON)
+    let rawToFrontend = data.replace(/\x1b\]999;([^\x07]+)\x07/g, '');
+    
+    ws.send(rawToFrontend); // RAW terminal output
   });
 
   // Frontend -> Terminal
@@ -162,12 +245,11 @@ function attachListeners(session) {
         } else if (cmd.type === 'RESIZE') {
           ptyProcess.resize(cmd.cols, cmd.rows);
         } else if (cmd.type === 'READY') {
-          // Frontend is sized and ready, send history chunks
           if (session.history && session.history.length > 0) {
-            // Send a clear command to ensure terminal is clean before restoring
             ws.send('\x1b[2J\x1b[3J\x1b[H');
             session.history.forEach(chunk => ws.send(chunk));
           }
+          ws.send(META({ type: 'EXECUTABLES', payload: getSystemExecutables() }));
         }
       } catch (_) { /* Malformed JSON: ignore */ }
     } else {
@@ -177,7 +259,7 @@ function attachListeners(session) {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// OSC 7 injection configuration according to the Shell
+// OSC injection configuration according to the Shell
 // ──────────────────────────────────────────────────────────────────────
 function buildShellConfig(shell, platform) {
   let shellArgs = [];
@@ -192,7 +274,6 @@ function buildShellConfig(shell, platform) {
     shellArgs = ['--rcfile', initPath];
 
   } else if (shell.includes('zsh')) {
-    // Zsh doesn't take --rcfile parameter. It loads its own .zshrc with ZDOTDIR variable.
     const zDotDir = path.join(os.tmpdir(), 'nexus_zsh_conf');
     fs.mkdirSync(zDotDir, { recursive: true });
     fs.writeFileSync(
@@ -202,13 +283,30 @@ function buildShellConfig(shell, platform) {
     shellEnv.ZDOTDIR = zDotDir;
 
   } else if (platform === 'win32') {
-    // PowerShell: OSC 7 broadcast by overriding prompt function
+    // PowerShell: OSC 7 (DIR) and OSC 999 (EVENTS) injection
     const initPath = path.join(os.tmpdir(), 'nexus_pwsh_init.ps1');
     fs.writeFileSync(
       initPath,
-      `function prompt {\n` +
+      `$global:OriginalPrompt = $function:prompt\n` +
+      `function global:prompt {\n` +
+      `  $success = $?\n` +
+      `  $exitCode = $LASTEXITCODE\n` +
+      `  if (-not $success) {\n` +
+      `    $lastCommandObj = Get-History -Count 1\n` +
+      `    $lastCommand = ""\n` +
+      `    if ($lastCommandObj) {\n` +
+      `      $lastCommand = $lastCommandObj.CommandLine.Trim()\n` +
+      `    } elseif ($Error.Count -gt 0) {\n` +
+      `      $lastCommand = $Error[0].InvocationInfo.Line.Trim()\n` +
+      `    }\n` +
+      `    if ($lastCommand) {\n` +
+      `      $payload = @{ type = "COMMAND_FAILED"; cmd = $lastCommand; exitCode = $exitCode; cwd = $PWD.Path } | ConvertTo-Json -Compress\n` +
+      `      Write-Host "$([char]27)]999;$payload$([char]7)" -NoNewline\n` +
+      `    }\n` +
+      `  }\n` +
       `  $p = $PWD.Path -replace '\\\\', '/'\n` +
-      `  return "$([char]27)]7;file://$env:COMPUTERNAME/$p$([char]7)PS> "\n` +
+      `  Write-Host "$([char]27)]7;file://$env:COMPUTERNAME/$p$([char]7)" -NoNewline\n` +
+      `  return & $global:OriginalPrompt\n` +
       `}\n`
     );
     shellArgs = ['-NoExit', '-File', initPath];
@@ -217,13 +315,9 @@ function buildShellConfig(shell, platform) {
   return { shellArgs, shellEnv };
 }
 
-// ──────────────────────────────────────────────────────────────────────
-// Secure kill depending on the Platform
-// There is no SIGTERM signal on Windows, node-pty's own kill() is used.
-// ──────────────────────────────────────────────────────────────────────
 function killPty(ptyProcess, platform, force = false) {
   if (platform === 'win32') {
-    ptyProcess.kill(); // node-pty Windows implementation
+    ptyProcess.kill();
   } else {
     ptyProcess.kill(force ? 'SIGKILL' : 'SIGTERM');
   }

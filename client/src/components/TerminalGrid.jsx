@@ -1,6 +1,7 @@
 import React from 'react';
 import { useStore } from '../store';
 import NexusTerm from './NexusTerm';
+import ErrorOverlay from './ErrorOverlay';
 
 export default function TerminalGrid() {
   const { panes, focusedPane, setFocusedPane } = useStore();
@@ -25,6 +26,7 @@ export default function TerminalGrid() {
           onClickCapture={() => setFocusedPane(paneId)}
           className={`relative border ${focusedPane === paneId ? 'border-[#89b4fa]' : 'border-[#313244]'} bg-[#1e1e2e] overflow-hidden`}
         >
+          <ErrorOverlay sessionId={paneId} />
           {/* Terminal Container - Absolute inset-0 forces strict height constraint for xterm.js fitAddon */}
           <div className="absolute inset-0 pl-2 pt-2">
             <NexusTerm sessionId={paneId} />

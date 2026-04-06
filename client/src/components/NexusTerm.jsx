@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -7,6 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 
 export default function NexusTerm({ sessionId }) {
   const divRef = useRef(null);
+  const [suggestions, setSuggestions] = useState([]);
 
   useEffect(() => {
     // ── TOKEN: Secure retrieval from URL ──────────────────────────────
@@ -86,11 +87,12 @@ export default function NexusTerm({ sessionId }) {
       if (data.startsWith('NEXUS_META:')) {
         try {
           const meta = JSON.parse(data.slice(11));
-          const { updateSession, addError } = useStore.getState();
+          const { updateSession, addError, setExecutables } = useStore.getState();
 
           if (meta.type === 'DIR_CHANGE') updateSession(sessionId, { pwd: meta.payload });
           if (meta.type === 'GIT_STATUS') updateSession(sessionId, { gitStatus: meta.payload });
           if (meta.type === 'ERROR') addError(sessionId, meta.rule);
+          if (meta.type === 'EXECUTABLES') setExecutables(meta.payload);
         } catch (_) { /* Malformed JSON: ignore */ }
       } else {
         term.write(data);
@@ -105,6 +107,38 @@ export default function NexusTerm({ sessionId }) {
       if (ws.readyState === WebSocket.OPEN) ws.send(data);
     });
 
+    // ── AUTOCOMPLETE: Monitor input buffer ────────────────────────
+    let typingTimeout;
+    term.onKey(({ key, domEvent }) => {
+      if (domEvent.key === 'Enter' || domEvent.ctrlKey || domEvent.altKey || domEvent.metaKey) {
+        setSuggestions([]);
+        return;
+      }
+      
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        const buffer = term.buffer.active;
+        const lineStr = buffer.getLine(buffer.cursorY + buffer.baseY)?.translateToString(true) || '';
+        
+        // We only care about what's typed before the cursor
+        const textBeforeCursor = lineStr.substring(0, buffer.cursorX).trimStart();
+        
+        // Split by spaces to get the last word being typed
+        const words = textBeforeCursor.trim().split(/\s+/);
+        const currentWord = words[words.length - 1];
+        
+        if (currentWord && currentWord.length > 1) {
+          const executables = useStore.getState().executables || [];
+          const matches = executables
+            .filter(e => e.startsWith(currentWord) && e !== currentWord)
+            .slice(0, 5); // limit to 5 suggestions
+          setSuggestions(matches);
+        } else {
+          setSuggestions([]);
+        }
+      }, 100);
+    });
+
     // ── CLIPBOARD: Copy/Paste support ────────────────────────────
     term.attachCustomKeyEventHandler((e) => {
       // Ctrl+C: Copy if text is selected, otherwise allow SIGINT
@@ -116,7 +150,15 @@ export default function NexusTerm({ sessionId }) {
           return false; // Prevent sending SIGINT
         }
       }
-      // Let xterm.js and the browser handle Ctrl+V natively
+      
+      // Tab Autocomplete insertion
+      if (e.code === 'Tab' && e.type === 'keydown' && suggestions.length > 0) {
+        // If there's an active suggestion, we could insert it. 
+        // For simplicity, we just let the shell's native tab completion handle it
+        // but we clear our visual suggestions.
+        setSuggestions([]);
+      }
+      
       return true;
     });
 
@@ -161,13 +203,41 @@ export default function NexusTerm({ sessionId }) {
       resizeObserver.observe(divRef.current);
     }
 
+    // ── ERROR ACTION LISTENER ──────────────────────────────────
+    const actionListener = (e) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(`NEXUS_CMD:${JSON.stringify({
+          type: 'ACTION',
+          command: e.detail
+        })}`);
+      }
+    };
+    window.addEventListener(`NEXUS_ACTION_${sessionId}`, actionListener);
+
     // ── CLEANUP: Memory leak prevention ──────────────────────────────
     return () => {
       resizeObserver.disconnect();
+      window.removeEventListener(`NEXUS_ACTION_${sessionId}`, actionListener);
+      clearTimeout(typingTimeout);
       ws.close();
       term.dispose();
     };
   }, []);
 
-  return <div ref={divRef} className="w-full h-full bg-[#1e1e2e]" />;
+  return (
+    <div className="relative w-full h-full">
+      {suggestions.length > 0 && (
+        <div className="absolute bottom-4 right-4 z-40 bg-[#313244] border border-[#45475a] rounded-md shadow-lg p-2 flex flex-col gap-1 text-sm text-[#a6adc8] pointer-events-none animate-in fade-in">
+          <div className="text-xs text-[#6c7086] mb-1 uppercase tracking-wider">Suggestions</div>
+          {suggestions.map((s, i) => (
+            <div key={i} className="px-2 py-0.5 rounded bg-[#1e1e2e] text-[#cdd6f4]">
+              {s}
+            </div>
+          ))}
+          <div className="text-[10px] text-[#6c7086] mt-1">Press Tab to complete natively</div>
+        </div>
+      )}
+      <div ref={divRef} className="w-full h-full bg-[#1e1e2e]" />
+    </div>
+  );
 }
