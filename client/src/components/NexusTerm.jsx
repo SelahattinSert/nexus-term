@@ -222,7 +222,7 @@ export default function NexusTerm({ sessionId }) {
       ws.close();
       term.dispose();
     };
-  }, []);
+  }, [sessionId]);
 
   return (
     <div className="relative w-full h-full">
@@ -241,3 +241,4 @@ export default function NexusTerm({ sessionId }) {
     </div>
   );
 }
+

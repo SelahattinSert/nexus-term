@@ -1,22 +1,25 @@
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 
 let cachedExecutables = null;
+let isScanning = false;
+let scanPromise = null;
 
-export function getSystemExecutables() {
+export async function getSystemExecutables() {
   if (cachedExecutables) return cachedExecutables;
+  
+  if (isScanning) return scanPromise;
+  
+  isScanning = true;
+  scanPromise = new Promise(async (resolve) => {
+    const executables = new Set();
+    const paths = process.env.PATH ? process.env.PATH.split(path.delimiter) : [];
 
-  const executables = new Set();
-  const paths = process.env.PATH ? process.env.PATH.split(path.delimiter) : [];
-
-  for (const dir of paths) {
-    try {
-      if (fs.existsSync(dir)) {
-        const files = fs.readdirSync(dir);
+    // Process directories in parallel for faster scanning
+    const scanPromises = paths.map(async (dir) => {
+      try {
+        const files = await fs.readdir(dir);
         for (const file of files) {
-          // In Windows, executables usually end with .exe, .cmd, .bat, etc., but we can just strip the extension or store it.
-          // For simplicity, we store the base name without extension for comparison, but it might be better to just store as is
-          // and strip extensions during comparison.
           const ext = path.extname(file).toLowerCase();
           const isWindows = process.platform === 'win32';
           
@@ -29,16 +32,21 @@ export function getSystemExecutables() {
              executables.add(file);
           }
         }
+      } catch (err) {
+        // Ignore directories we can't read or don't exist
       }
-    } catch (err) {
-      // Ignore directories we can't read
-    }
-  }
+    });
 
-  // Add some common built-ins that might not be discrete files in PATH
-  const builtins = ['cd', 'echo', 'exit', 'pwd', 'clear', 'cls', 'dir', 'ls', 'history', 'alias'];
-  builtins.forEach(cmd => executables.add(cmd));
+    await Promise.all(scanPromises);
 
-  cachedExecutables = Array.from(executables);
-  return cachedExecutables;
+    // Add some common built-ins that might not be discrete files in PATH
+    const builtins = ['cd', 'echo', 'exit', 'pwd', 'clear', 'cls', 'dir', 'ls', 'history', 'alias'];
+    builtins.forEach(cmd => executables.add(cmd));
+
+    cachedExecutables = Array.from(executables);
+    isScanning = false;
+    resolve(cachedExecutables);
+  });
+  
+  return scanPromise;
 }

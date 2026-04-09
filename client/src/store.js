@@ -109,9 +109,20 @@ export const useStore = create(
       }),
 
       // --- Error Management ---
-      addError: (sessionId, rule) => set((state) => ({
-        errors: [...state.errors, { ...rule, id: Date.now(), sessionId }],
-      })),
+      addError: (sessionId, rule, errorId) => set((state) => {
+        const id = errorId || Date.now();
+        const existingIndex = state.errors.findIndex(e => e.id === id);
+        
+        if (existingIndex >= 0) {
+          const newErrors = [...state.errors];
+          newErrors[existingIndex] = { ...rule, id, sessionId };
+          return { errors: newErrors };
+        }
+        
+        return {
+          errors: [...state.errors, { ...rule, id, sessionId }]
+        };
+      }),
       
       dismissError: (id) => set((state) => ({
         errors: state.errors.filter((e) => e.id !== id),

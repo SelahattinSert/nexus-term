@@ -35,7 +35,7 @@ export default function ErrorOverlay({ sessionId }) {
             <div className="flex flex-col gap-2">
               {error.actions.map((action, idx) => (
                 <button
-                  key={idx}
+                  key={action.command || idx}
                   onClick={() => {
                     handleAction(action.command);
                     dismissError(error.id);

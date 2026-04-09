@@ -100,7 +100,7 @@ export function handleConnection(ws, req, { getCpuUsage }) {
 
 async function handleCommandFailed(session, payload) {
   const { ws } = session;
-  const executables = getSystemExecutables();
+  const executables = await getSystemExecutables();
   const fullCmd = payload.cmd.trim();
   const hasArguments = fullCmd.includes(' ');
   const extractedCommand = fullCmd.split(' ')[0].trim();
@@ -111,35 +111,32 @@ async function handleCommandFailed(session, payload) {
 
   let bestMatch = null;
   let bestDist = Infinity;
-  const popularCommands = ['git', 'npm', 'docker', 'cd', 'ls', 'yarn', 'pnpm', 'npx', 'node', 'code', 'python', 'pip'];
+  let closestCommands = [];
+  const popularCommands = ['git', 'npm', 'docker', 'cd', 'ls', 'yarn', 'pnpm', 'npx', 'node', 'code', 'python', 'pip', 'az', 'aws', 'kubectl'];
 
-  // Phase 1: Local heuristics - ONLY for single-word commands that are not valid
-  // If there are arguments, we trust the LLM to fix the entire context.
-  if (!isCommandValid && !hasArguments) {
-    const allowedDist = extractedCommand.length <= 3 ? 1 : 2;
-
-    for (const cmd of executables) {
-      if (Math.abs(cmd.length - extractedCommand.length) > allowedDist) continue;
+  // Phase 1: Local heuristics - find the closest valid executables if the command is invalid
+  if (!isCommandValid) {
+    const scored = executables.map(cmd => {
       let dist = levenshtein.get(extractedCommand, cmd);
-      
-      if (popularCommands.includes(cmd)) {
-        dist -= 1.1; // Slight boost for popular ones
-      }
-
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestMatch = cmd;
-      }
-    }
+      if (popularCommands.includes(cmd)) dist -= 1.1; // Boost popular commands
+      return { cmd, dist };
+    });
+    
+    scored.sort((a, b) => a.dist - b.dist);
+    closestCommands = scored.slice(0, 10).map(x => x.cmd);
+    
+    bestMatch = closestCommands[0];
+    bestDist = scored[0].dist;
   }
 
+  const errorId = crypto.randomUUID();
   const matchedRule = {
-    id: 'command_not_found_shell',
+    id: errorId,
     description: `Command failed with exit code ${payload.exitCode}.`,
     actions: []
   };
 
-  // Only suggest local fix if it's a single word and we are very confident (dist 1-2)
+  // Only suggest direct local fix if it's a single word and we are very confident (dist 1-2)
   if (!isCommandValid && !hasArguments && bestMatch && bestDist <= 1.5) {
     matchedRule.description = `Did you mean '${bestMatch}'?`;
     matchedRule.actions = [{
@@ -147,12 +144,13 @@ async function handleCommandFailed(session, payload) {
       command: bestMatch
     }];
   } else {
-    // Phase 2: Everything else (valid commands with bad args, or complex multi-word typos) goes to LLM
+    // Phase 2: Everything else goes to LLM. We will pass closestCommands to the LLM as a hint.
     matchedRule.description = `Analyzing error with local AI...`;
-    ws.send(META({ type: 'ERROR', rule: matchedRule }));
+    ws.send(META({ type: 'ERROR', rule: matchedRule, errorId }));
 
     try {
-      const llmSuggestion = await analyzeCommandError(payload);
+      // Pass closestCommands as a hint to the LLM
+      const llmSuggestion = await analyzeCommandError({ ...payload, closestCommands });
       // Ensure LLM didn't just repeat the same failing command
       if (llmSuggestion && llmSuggestion.toLowerCase() !== fullCmd.toLowerCase()) {
         matchedRule.description = `AI Suggestion: '${llmSuggestion}'`;
@@ -160,11 +158,11 @@ async function handleCommandFailed(session, payload) {
           label: `Run '${llmSuggestion}'`,
           command: llmSuggestion
         }];
-        ws.send(META({ type: 'ERROR', rule: matchedRule }));
+        ws.send(META({ type: 'ERROR', rule: matchedRule, errorId }));
       } else {
         // If LLM has no better idea, update the UI
         matchedRule.description = `Command '${extractedCommand}' failed. Check your arguments.`;
-        ws.send(META({ type: 'ERROR', rule: matchedRule }));
+        ws.send(META({ type: 'ERROR', rule: matchedRule, errorId }));
       }
     } catch (error) {
       console.error('LLM Analysis failed:', error.message);
@@ -172,7 +170,7 @@ async function handleCommandFailed(session, payload) {
     return;
   }
 
-  ws.send(META({ type: 'ERROR', rule: matchedRule }));
+  ws.send(META({ type: 'ERROR', rule: matchedRule, errorId }));
 }
 
 // ──────────────────────────────────────────────────────────────────────
@@ -249,7 +247,9 @@ function attachListeners(session) {
             ws.send('\x1b[2J\x1b[3J\x1b[H');
             session.history.forEach(chunk => ws.send(chunk));
           }
-          ws.send(META({ type: 'EXECUTABLES', payload: getSystemExecutables() }));
+          getSystemExecutables().then(execs => {
+            ws.send(META({ type: 'EXECUTABLES', payload: execs }));
+          });
         }
       } catch (_) { /* Malformed JSON: ignore */ }
     } else {

@@ -12,6 +12,7 @@ let model = null;
 let context = null;
 let session = null;
 let isInitializing = false;
+let isProcessing = false;
 
 /**
  * Initializes the local LLM model in the background.
@@ -52,41 +53,45 @@ export async function analyzeCommandError(payload) {
     throw new Error('Local LLM engine is not available.');
   }
 
-  const prompt = `Task: Fix the following shell command.
-Rules:
-- Output ONLY the fixed command. 
-- No explanations, no markdown, no quotes.
-- If the command name (1st word) is wrong, fix it (e.g. dpckre -> docker).
-- Fix misspelled arguments/flags.
-
-Examples:
-Input: gti status
-Output: git status
-
-Input: nmp install react
-Output: npm install react
-
-Input: ssh @root 172.168.1.1
-Output: ssh root@172.168.1.1
-
-Input: dpckre runn -it alphine
-Output: docker run -it alpine
-
-Input: ${payload.cmd}
-Output:`;
-
-  // Clear previous history to ensure independent analysis and avoid sequence exhaustion
-  session.setChatHistory([]);
-
-  const answer = await session.prompt(prompt, {
-    maxTokens: 50,
-    temperature: 0.1
-  });
-
-  // Clean the output: remove markdown backticks, quotes, and whitespace
-  let cleaned = answer.replace(/[`'"]/g, '').trim();
+  // Simple concurrency management: wait if another request is being processed
+  while (isProcessing) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
   
-  if (cleaned.toUpperCase() === 'FAILED') return null;
+  isProcessing = true;
 
-  return cleaned;
+  try {
+    // Clear previous history to ensure independent analysis and avoid context pollution
+    session.setChatHistory([]);
+
+    const hintText = (payload.closestCommands && payload.closestCommands.length > 0)
+      ? `Hint: The user likely misspelled the first word. Here are the 10 most similar valid commands installed on this system: [${payload.closestCommands.join(', ')}]. Choose the correct one from this list to replace the first word.\n` 
+      : '';
+
+    const prompt = `You are a command-line autocorrect AI.
+Your ONLY task is to fix typos in the provided shell command.
+
+Rules:
+1. Fix the executable name if it is misspelled.
+2. Fix misspelled subcommands, arguments, and flags.
+3. Output ONLY the corrected command. No explanations, no markdown formatting, no quotes.
+
+${hintText}
+Broken command: ${payload.cmd}
+Corrected command:`;
+
+    const answer = await session.prompt(prompt, {
+      maxTokens: 50,
+      temperature: 0.1
+    });
+
+    // Clean the output: remove markdown backticks, quotes, and whitespace
+    let cleaned = answer.replace(/[`'"]/g, '').trim();
+    
+    if (cleaned.toUpperCase() === 'FAILED') return null;
+
+    return cleaned;
+  } finally {
+    isProcessing = false;
+  }
 }
