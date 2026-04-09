@@ -9,6 +9,7 @@ import os from 'os';
 import open from 'open';
 import { fileURLToPath } from 'url';
 import { handleConnection } from './ptyManager.js';
+import { initLlama } from './llmService.js';
 
 const app = express();
 const TOKEN = crypto.randomBytes(16).toString('hex');
@@ -102,6 +103,9 @@ server.listen(PORT, '127.0.0.1', async () => {
   const url = `http://127.0.0.1:${PORT}/?token=${TOKEN}`;
   console.log('\x1b[32m🚀 NexusTerm started!\x1b[0m');
   console.log(`Interface: \x1b[36m${url}\x1b[0m`);
+  
+  // Initialize the embedded LLM asynchronously in the background
+  initLlama().catch(console.error);
 
   try {
     await open(url);

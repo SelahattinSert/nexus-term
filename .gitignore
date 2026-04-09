@@ -36,3 +36,5 @@ public/ (only for artifacts)
 backend/public
 client/dist
 server/public
+server/models/
+*.gguf
