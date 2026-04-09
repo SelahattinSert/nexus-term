@@ -1,9 +1,9 @@
 import React from 'react';
 import { useStore } from '../store';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, Sidebar } from 'lucide-react';
 
 export default function TabBar() {
-  const { sessions, panes, focusedPane, setFocusedPane, createSession, removeSession, swapPane, addPane } = useStore();
+  const { sessions, panes, focusedPane, setFocusedPane, createSession, removeSession, swapPane, addPane, toggleSidebar, isSidebarOpen } = useStore();
 
   const handleTabClick = (session) => {
     const isVisible = panes.includes(session.id);
@@ -24,6 +24,14 @@ export default function TabBar() {
 
   return (
     <div className="flex bg-[#11111b] h-10 items-center overflow-x-auto no-scrollbar border-b border-[#313244] shrink-0">
+      <button 
+        onClick={toggleSidebar}
+        title="Toggle File Explorer"
+        className={`h-full px-4 border-r border-[#313244] flex items-center justify-center transition-colors ${isSidebarOpen ? 'text-[#89b4fa] bg-[#1e1e2e]' : 'text-[#a6adc8] hover:text-[#cdd6f4] hover:bg-[#181825]'}`}
+      >
+        <Sidebar size={18} />
+      </button>
+
       {sessions.map((session) => {
         const isVisible = panes.includes(session.id);
         const isFocused = focusedPane === session.id;
