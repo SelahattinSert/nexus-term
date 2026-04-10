@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import TabBar from './components/TabBar';
 import TerminalGrid from './components/TerminalGrid';
+import FileManager from './components/FileManager';
 import { useStore } from './store';
 
 function App() {
@@ -19,7 +20,7 @@ function App() {
     <div className="flex flex-col w-full h-full bg-[#11111b] text-white">
       <TabBar />
 
-      <header className="bg-[#181825] text-xs py-1 px-4 flex gap-4 text-[#a6adc8] border-b border-[#313244] min-h-[24px] items-center">
+      <header className="bg-[#181825] text-xs py-1 px-4 flex gap-4 text-[#a6adc8] border-b border-[#313244] min-h-[24px] items-center shrink-0">
         {focusedSession ? (
           <>
             <span className="truncate">📁 {focusedSession.pwd}</span>
@@ -34,8 +35,11 @@ function App() {
         )}
       </header>
 
-      <main className="flex-1 overflow-hidden relative">
-        <TerminalGrid />
+      <main className="flex-1 overflow-hidden relative flex">
+        <FileManager />
+        <div className="flex-1 overflow-hidden relative">
+          <TerminalGrid />
+        </div>
       </main>
     </div>
   );

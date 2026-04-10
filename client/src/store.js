@@ -17,8 +17,14 @@ export const useStore = create(
       // Global errors array, each error now has an associated sessionId
       errors: [],
 
+      // Sidebar visibility state
+      isSidebarOpen: false,
+
       // System executables for autocomplete
       executables: [],
+
+      // --- UI Management ---
+      toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
 
       // --- Session Management ---
 
