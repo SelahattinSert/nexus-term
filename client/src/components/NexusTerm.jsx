@@ -87,12 +87,13 @@ export default function NexusTerm({ sessionId }) {
       if (data.startsWith('NEXUS_META:')) {
         try {
           const meta = JSON.parse(data.slice(11));
-          const { updateSession, addError, setExecutables } = useStore.getState();
+          const { updateSession, addError, setExecutables, setSystemStats } = useStore.getState();
 
           if (meta.type === 'DIR_CHANGE') updateSession(sessionId, { pwd: meta.payload });
           if (meta.type === 'GIT_STATUS') updateSession(sessionId, { gitStatus: meta.payload });
           if (meta.type === 'ERROR') addError(sessionId, meta.rule);
           if (meta.type === 'EXECUTABLES') setExecutables(meta.payload);
+          if (meta.type === 'SYSTEM_STATS') setSystemStats(meta.payload);
         } catch (_) { /* Malformed JSON: ignore */ }
       } else {
         term.write(data);
