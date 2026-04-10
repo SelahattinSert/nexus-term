@@ -5,7 +5,7 @@ import FileManager from './components/FileManager';
 import { useStore } from './store';
 
 function App() {
-  const { sessions, focusedPane, createSession } = useStore();
+  const { sessions, focusedPane, createSession, systemStats } = useStore();
 
   useEffect(() => {
     // Create initial session if none exists
@@ -33,6 +33,18 @@ function App() {
         ) : (
           <span>No terminal focused</span>
         )}
+        <div className="ml-auto flex gap-4 text-[#6c7086]">
+          {systemStats && (
+            <>
+              <span title={`RAM: ${Math.round(systemStats.usedMem / 1073741824 * 10) / 10}GB / ${Math.round(systemStats.totalMem / 1073741824 * 10) / 10}GB`}>
+                🧠 {systemStats.ram}%
+              </span>
+              <span>
+                💻 {systemStats.cpu}%
+              </span>
+            </>
+          )}
+        </div>
       </header>
 
       <main className="flex-1 overflow-hidden relative flex">

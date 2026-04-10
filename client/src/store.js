@@ -135,7 +135,11 @@ export const useStore = create(
       })),
 
       // --- Autocomplete Management ---
-      setExecutables: (executables) => set({ executables })
+      setExecutables: (executables) => set({ executables }),
+
+      // --- System Monitor ---
+      systemStats: null,
+      setSystemStats: (stats) => set({ systemStats: stats })
     }),
     {
       name: 'nexus-store', // unique name

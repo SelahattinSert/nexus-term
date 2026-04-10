@@ -97,6 +97,26 @@ wss.on('connection', (ws, req) => {
   handleConnection(ws, req, { getCpuUsage, TOKEN });
 });
 
+// --- System Monitor Broadcast ---
+setInterval(() => {
+  const cpu = getCpuUsage();
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = totalMem - freeMem;
+  const ramPercent = Math.round((usedMem / totalMem) * 100);
+  
+  const payload = JSON.stringify({
+    type: 'SYSTEM_STATS',
+    payload: { cpu, ram: ramPercent, usedMem, totalMem }
+  });
+  
+  wss.clients.forEach(client => {
+    if (client.readyState === 1 /* WebSocket.OPEN */) {
+      client.send(`NEXUS_META:${payload}`);
+    }
+  });
+}, 2000);
+
 // --- Start Server ---
 const PORT = 4000;
 server.listen(PORT, '127.0.0.1', async () => {
