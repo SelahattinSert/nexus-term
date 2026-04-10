@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { Folder, File, FolderOpen, AlertCircle } from 'lucide-react';
 
 export default function FileManager() {
-  const { sessions, focusedPane, isSidebarOpen } = useStore();
+  const { sessions, focusedPane, isSidebarOpen, activeSidebarTab } = useStore();
   const [files, setFiles] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -55,9 +55,19 @@ export default function FileManager() {
     return () => {
       isMounted = false;
     };
-  }, [currentPwd, isSidebarOpen]);
+  }, [currentPwd, isSidebarOpen, activeSidebarTab]);
 
-  if (!isSidebarOpen) return null;
+  if (!isSidebarOpen || activeSidebarTab !== 'explorer') return null;
+
+  const handleDoubleClick = (file) => {
+    if (!focusedSession) return;
+    
+    if (file.isDir) {
+      window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${focusedSession.id}`, { detail: `cd "${file.name}"` }));
+    } else {
+      window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${focusedSession.id}`, { detail: `./"${file.name}"` }));
+    }
+  };
 
   return (
     <div className="w-64 flex-shrink-0 bg-[#181825] border-r border-[#313244] flex flex-col h-full overflow-hidden text-sm">
@@ -83,7 +93,8 @@ export default function FileManager() {
             {files.map((file, idx) => (
               <li 
                 key={idx} 
-                className="flex items-center gap-2 px-2 py-1.5 hover:bg-[#313244] rounded cursor-default text-[#cdd6f4] transition-colors"
+                onDoubleClick={() => handleDoubleClick(file)}
+                className="flex items-center gap-2 px-2 py-1.5 hover:bg-[#313244] rounded cursor-pointer text-[#cdd6f4] transition-colors select-none"
                 title={file.name}
               >
                 {file.isDir ? (

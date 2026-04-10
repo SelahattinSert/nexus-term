@@ -19,12 +19,14 @@ export const useStore = create(
 
       // Sidebar visibility state
       isSidebarOpen: false,
+      activeSidebarTab: 'explorer', // 'explorer' or 'git'
 
       // System executables for autocomplete
       executables: [],
 
       // --- UI Management ---
       toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
+      setActiveSidebarTab: (tab) => set({ activeSidebarTab: tab, isSidebarOpen: true }),
 
       // --- Session Management ---
 

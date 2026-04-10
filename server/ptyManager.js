@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import levenshtein from 'fast-levenshtein';
 import { getSystemExecutables } from './pathScanner.js';
-import { getGitStatus } from './gitMonitor.js';
+import { getGitStatus, fetchAndGetGitStatus } from './gitMonitor.js';
 import { analyzeCommandError } from './llmService.js';
 
 // ========================
