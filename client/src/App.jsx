@@ -2,6 +2,8 @@ import React, { useEffect } from 'react';
 import TabBar from './components/TabBar';
 import TerminalGrid from './components/TerminalGrid';
 import FileManager from './components/FileManager';
+import GitPanel from './components/GitPanel';
+import ActivityBar from './components/ActivityBar';
 import { useStore } from './store';
 
 function App() {
@@ -48,7 +50,9 @@ function App() {
       </header>
 
       <main className="flex-1 overflow-hidden relative flex">
+        <ActivityBar />
         <FileManager />
+        <GitPanel />
         <div className="flex-1 overflow-hidden relative">
           <TerminalGrid />
         </div>

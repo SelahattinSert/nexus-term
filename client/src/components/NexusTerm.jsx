@@ -213,12 +213,21 @@ export default function NexusTerm({ sessionId }) {
         })}`);
       }
     };
+    
+    const metaActionListener = (e) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(`NEXUS_CMD:${JSON.stringify(e.detail)}`);
+      }
+    };
+
     window.addEventListener(`NEXUS_ACTION_${sessionId}`, actionListener);
+    window.addEventListener(`NEXUS_META_ACTION_${sessionId}`, metaActionListener);
 
     // ── CLEANUP: Memory leak prevention ──────────────────────────────
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener(`NEXUS_ACTION_${sessionId}`, actionListener);
+      window.removeEventListener(`NEXUS_META_ACTION_${sessionId}`, metaActionListener);
       clearTimeout(typingTimeout);
       ws.close();
       term.dispose();
