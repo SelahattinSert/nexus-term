@@ -8,6 +8,11 @@ import '@xterm/xterm/css/xterm.css';
 export default function NexusTerm({ sessionId }) {
   const divRef = useRef(null);
   const [suggestions, setSuggestions] = useState([]);
+  const suggestionsRef = useRef([]);
+
+  useEffect(() => {
+    suggestionsRef.current = suggestions;
+  }, [suggestions]);
 
   useEffect(() => {
     // ── TOKEN: Secure retrieval from URL ──────────────────────────────
@@ -66,7 +71,9 @@ export default function NexusTerm({ sessionId }) {
         fitAddon.fit();
         term.focus();
         trySendReady();
-      } catch (err) {}
+      } catch {
+        /* Ignore fit error */
+      }
     }, 50);
 
     // Expose buffer API for E2E tests (only in test environment)
@@ -94,7 +101,7 @@ export default function NexusTerm({ sessionId }) {
           if (meta.type === 'ERROR') addError(sessionId, meta.rule);
           if (meta.type === 'EXECUTABLES') setExecutables(meta.payload);
           if (meta.type === 'SYSTEM_STATS') setSystemStats(meta.payload);
-        } catch (_) { /* Malformed JSON: ignore */ }
+        } catch { /* Malformed JSON: ignore */ }
       } else {
         term.write(data);
       }
@@ -110,7 +117,7 @@ export default function NexusTerm({ sessionId }) {
 
     // ── AUTOCOMPLETE: Monitor input buffer ────────────────────────
     let typingTimeout;
-    term.onKey(({ key, domEvent }) => {
+    term.onKey(({ domEvent }) => {
       if (domEvent.key === 'Enter' || domEvent.ctrlKey || domEvent.altKey || domEvent.metaKey) {
         setSuggestions([]);
         return;
@@ -153,7 +160,7 @@ export default function NexusTerm({ sessionId }) {
       }
       
       // Tab Autocomplete insertion
-      if (e.code === 'Tab' && e.type === 'keydown' && suggestions.length > 0) {
+      if (e.code === 'Tab' && e.type === 'keydown' && suggestionsRef.current.length > 0) {
         // If there's an active suggestion, we could insert it. 
         // For simplicity, we just let the shell's native tab completion handle it
         // but we clear our visual suggestions.
@@ -195,7 +202,7 @@ export default function NexusTerm({ sessionId }) {
             })}`);
           }
         }
-      } catch (err) {
+      } catch {
         // fitAddon might throw if the element is not fully rendered
       }
     });

@@ -18,8 +18,14 @@ export default function FileManager() {
     if (!token) return;
 
     let isMounted = true;
-    setLoading(true);
-    setError(null);
+    
+    // Use a small delay to avoid synchronous setState in effect warning
+    const timeoutId = setTimeout(() => {
+      if (isMounted) {
+        setLoading(true);
+        setError(null);
+      }
+    }, 0);
 
     // Dynamic API URL depending on the environment
     const apiUrl = import.meta.env.DEV ? 'http://127.0.0.1:4000' : '';
@@ -54,6 +60,7 @@ export default function FileManager() {
 
     return () => {
       isMounted = false;
+      clearTimeout(timeoutId);
     };
   }, [currentPwd, isSidebarOpen, activeSidebarTab]);
 
