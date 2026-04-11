@@ -1,0 +1,8 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "Checking client formatting and linting..."
+cd client
+npm run lint
+
+# Note: Server checks could be added here later if needed
