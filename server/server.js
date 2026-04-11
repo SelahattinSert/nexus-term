@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import 'dotenv/config';
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
@@ -118,9 +119,11 @@ setInterval(() => {
 }, 2000);
 
 // --- Start Server ---
-const PORT = 4000;
-server.listen(PORT, '127.0.0.1', async () => {
-  const url = `http://127.0.0.1:${PORT}/?token=${TOKEN}`;
+const PORT = process.env.PORT || 4000;
+const HOST = process.env.HOST || '127.0.0.1';
+
+server.listen(PORT, HOST, async () => {
+  const url = `http://${HOST}:${PORT}/?token=${TOKEN}`;
   console.log('\x1b[32m🚀 NexusTerm started!\x1b[0m');
   console.log(`Interface: \x1b[36m${url}\x1b[0m`);
   
