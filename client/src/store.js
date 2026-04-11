@@ -19,7 +19,10 @@ export const useStore = create(
 
       // Sidebar visibility state
       isSidebarOpen: false,
-      activeSidebarTab: 'explorer', // 'explorer' or 'git'
+      activeSidebarTab: 'explorer', // 'explorer' or 'git' or 'snippets'
+
+      // Snippets
+      snippets: [],
 
       // System executables for autocomplete
       executables: [],
@@ -27,6 +30,15 @@ export const useStore = create(
       // --- UI Management ---
       toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
       setActiveSidebarTab: (tab) => set({ activeSidebarTab: tab, isSidebarOpen: true }),
+
+      // --- Snippet Management ---
+      addSnippet: (snippet) => set((state) => ({
+        snippets: [...state.snippets, { ...snippet, id: crypto.randomUUID() }]
+      })),
+      removeSnippet: (id) => set((state) => ({
+        snippets: state.snippets.filter(s => s.id !== id)
+      })),
+
 
       // --- Session Management ---
 
@@ -145,7 +157,7 @@ export const useStore = create(
     }),
     {
       name: 'nexus-store', // unique name
-      storage: createJSONStorage(() => sessionStorage), // (optional) by default, 'localStorage' is used
+      storage: createJSONStorage(() => localStorage), // use localStorage to persist snippets and tabs
     }
   )
 );

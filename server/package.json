@@ -6,6 +6,15 @@
   "bin": {
     "nexusterm": "./server.js"
   },
+  "files": [
+    "server.js",
+    "ptyManager.js",
+    "gitMonitor.js",
+    "llmService.js",
+    "pathScanner.js",
+    "public/",
+    "scripts/"
+  ],
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

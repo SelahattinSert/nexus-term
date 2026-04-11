@@ -16,6 +16,8 @@ Built with **React**, **Node.js**, and **xterm.js**, NexusTerm bridges the gap b
 *   **📁 File Explorer:** A collapsible sidebar that automatically syncs with the active terminal's current working directory. Double-click folders to `cd` into them, or double-click files to execute them.
 *   **💻 System Monitor:** Real-time CPU and RAM usage tracker elegantly displayed in the header.
 *   **🚀 Auto-Complete:** Native-feeling tab completion suggestions based on system executables.
+*   **🛠️ Visual CLI Builder & Snippets:** Construct complex CLI commands via an intuitive UI (flags, key-value pairs, args), save them as Snippets, and execute them with a single click.
+*   **⌨️ Command Palette:** Press `Ctrl+P` (or `Cmd+P`) to quickly run saved snippets, open new sessions, or toggle the UI layout.
 
 ---
 
@@ -33,7 +35,7 @@ Built with **React**, **Node.js**, and **xterm.js**, NexusTerm bridges the gap b
 - [x] **Phase 2:** Multi-Session (Tabs), Grid Layout, and State Reconnection
 - [x] **Phase 3:** Smart Terminal (Typo Correction, Error Beautifier, Embedded LLM)
 - [x] **Phase 4:** Visual Panels (File Manager, Git Status, System Monitor)
-- [ ] **Phase 5:** Open Source & Community (CI/CD, Visual CLI Builder)
+- [x] **Phase 5:** Open Source & Community (Packaging & NPX, Command Palette, Visual CLI Builder)
 
 ---
 
@@ -51,7 +53,7 @@ Built with **React**, **Node.js**, and **xterm.js**, NexusTerm bridges the gap b
     npm install
     # (Optional) Download the local AI model for smart autocorrect:
     # npm run setup:ai
-    node server.js
+    npm start
     ```
 
 3.  **Start the Client:**
@@ -59,10 +61,22 @@ Built with **React**, **Node.js**, and **xterm.js**, NexusTerm bridges the gap b
     cd ../client
     npm install
     npm run build
+    # The build script automatically copies files to the server's public directory
     ```
 
 4.  **Open in Browser:**
     NexusTerm will automatically open in your default browser. If not, follow the URL printed in the terminal (e.g., `http://127.0.0.1:4000/?token=...`)
+
+---
+
+## 📦 Global Installation (via NPX)
+
+You can run NexusTerm directly from anywhere on your system without cloning the repository!
+*(Note: Requires the package to be published to npm. For local testing, you can run `npm link` inside the server directory).*
+
+```bash
+npx nexusterm
+```
 
 ---
 

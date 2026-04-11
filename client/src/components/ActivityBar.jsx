@@ -1,6 +1,6 @@
 import React from 'react';
 import { useStore } from '../store';
-import { Files, GitBranch } from 'lucide-react';
+import { Files, GitBranch, Star } from 'lucide-react';
 
 export default function ActivityBar() {
   const { isSidebarOpen, activeSidebarTab, setActiveSidebarTab, toggleSidebar } = useStore();
@@ -29,6 +29,14 @@ export default function ActivityBar() {
       >
         <GitBranch size={24} strokeWidth={1.5} />
       </button>
+      <button 
+        onClick={() => handleTabClick('snippets')}
+        title="Saved Snippets"
+        className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'snippets' && isSidebarOpen ? 'text-[#f9e2af]' : 'text-[#6c7086] hover:text-[#f9e2af]'}`}
+      >
+        <Star size={24} strokeWidth={1.5} />
+      </button>
     </div>
   );
 }
+
