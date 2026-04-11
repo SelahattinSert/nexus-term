@@ -158,6 +158,11 @@ export const useStore = create(
     {
       name: 'nexus-store', // unique name
       storage: createJSONStorage(() => localStorage), // use localStorage to persist snippets and tabs
+      partialize: (state) => ({
+        snippets: state.snippets,
+        activeSidebarTab: state.activeSidebarTab,
+        isSidebarOpen: state.isSidebarOpen,
+      }),
     }
   )
 );

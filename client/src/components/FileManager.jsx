@@ -69,10 +69,13 @@ export default function FileManager() {
   const handleDoubleClick = (file) => {
     if (!focusedSession) return;
     
+    // Sanitize filename to prevent command injection
+    const sanitizedName = file.name.replace(/["'$`\\]/g, '');
+    
     if (file.isDir) {
-      window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${focusedSession.id}`, { detail: `cd "${file.name}"` }));
+      window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${focusedSession.id}`, { detail: `cd "${sanitizedName}"` }));
     } else {
-      window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${focusedSession.id}`, { detail: `./"${file.name}"` }));
+      window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${focusedSession.id}`, { detail: `./"${sanitizedName}"` }));
     }
   };
 

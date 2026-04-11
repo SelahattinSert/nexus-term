@@ -13,8 +13,10 @@ export default function GitPanel() {
 
   const handleBranchClick = (branch) => {
     if (!focusedSession || branch === gitStatus.branch) return;
+    // Sanitize branch name to prevent command injection
+    const sanitizedBranch = branch.replace(/["'$`\\]/g, '');
     // Dispatch custom event to NexusTerm to execute checkout
-    window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${focusedSession.id}`, { detail: `git checkout ${branch}` }));
+    window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${focusedSession.id}`, { detail: `git checkout "${sanitizedBranch}"` }));
   };
 
   const handleFetch = () => {
