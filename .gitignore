@@ -14,6 +14,7 @@ Thumbs.db
 # Dependencies
 node_modules/
 dist/
+coverage/
 public/ (only for artifacts)
 
 # Environment
