@@ -20,7 +20,7 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "setup:ai": "node scripts/download-model.js",
-    "test": "node --test"
+    "test": "node --experimental-test-coverage --test"
   },
   "keywords": [],
   "author": "",

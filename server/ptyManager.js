@@ -2,6 +2,7 @@ import pty from 'node-pty';
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import levenshtein from 'fast-levenshtein';
 import { getSystemExecutables } from './pathScanner.js';
 import { getGitStatus, fetchAndGetGitStatus } from './gitMonitor.js';

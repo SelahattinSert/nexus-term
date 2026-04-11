@@ -14,6 +14,10 @@ let session = null;
 let isInitializing = false;
 let isProcessing = false;
 
+export function setSessionForTest(mockSession) {
+  session = mockSession;
+}
+
 /**
  * Initializes the local LLM model in the background.
  * Call this when the server starts to avoid delays on the first error.
