@@ -1,34 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { X, Plus, Trash2, Save } from 'lucide-react';
 import { useStore } from '../store';
 
 export default function VisualCommandBuilder({ onClose, initialData }) {
-  const { addSnippet, snippets, removeSnippet } = useStore();
-  const [name, setName] = useState('');
-  const [baseCmd, setBaseCmd] = useState('');
-  const [parts, setParts] = useState([]);
-
-  useEffect(() => {
-    if (initialData) {
-      setName(initialData.name);
-      // Try to parse command into parts (simple split by space for now)
-      const tokens = initialData.command.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
-      if (tokens.length > 0) {
-        setBaseCmd(tokens[0]);
-        const newParts = tokens.slice(1).map(t => {
-          if (t.startsWith('--') && t.includes('=')) {
-            const [key, ...val] = t.split('=');
-            return { type: 'kv', key, value: val.join('='), id: crypto.randomUUID() };
-          } else if (t.startsWith('-')) {
-            return { type: 'flag', key: t, value: '', id: crypto.randomUUID() };
-          } else {
-            return { type: 'arg', key: '', value: t, id: crypto.randomUUID() };
-          }
-        });
-        setParts(newParts);
-      }
+  const { addSnippet, removeSnippet } = useStore();
+  
+  const [name, setName] = useState(initialData?.name || '');
+  const [baseCmd, setBaseCmd] = useState(() => {
+    if (!initialData) return '';
+    const tokens = initialData.command.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+    return tokens.length > 0 ? tokens[0] : '';
+  });
+  
+  const [parts, setParts] = useState(() => {
+    if (!initialData) return [];
+    const tokens = initialData.command.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+    if (tokens.length > 0) {
+      return tokens.slice(1).map(t => {
+        if (t.startsWith('--') && t.includes('=')) {
+          const [key, ...val] = t.split('=');
+          return { type: 'kv', key, value: val.join('='), id: crypto.randomUUID() };
+        } else if (t.startsWith('-')) {
+          return { type: 'flag', key: t, value: '', id: crypto.randomUUID() };
+        } else {
+          return { type: 'arg', key: '', value: t, id: crypto.randomUUID() };
+        }
+      });
     }
-  }, [initialData]);
+    return [];
+  });
 
   const addPart = (type) => {
     setParts([...parts, { type, key: type === 'flag' ? '-' : '', value: '', id: crypto.randomUUID() }]);
@@ -139,7 +139,7 @@ export default function VisualCommandBuilder({ onClose, initialData }) {
                   No parameters added. Click above to add flags or arguments.
                 </div>
               )}
-              {parts.map((p, index) => (
+              {parts.map((p) => (
                 <div key={p.id} className="flex gap-2 items-center bg-[#11111b] p-2 rounded border border-[#313244]">
                   {p.type === 'flag' && (
                     <>

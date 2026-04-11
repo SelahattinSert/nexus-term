@@ -4,7 +4,7 @@ import { Play, Trash2, Plus, Edit } from 'lucide-react';
 import VisualCommandBuilder from './VisualCommandBuilder';
 
 export default function SnippetsPanel() {
-  const { isSidebarOpen, activeSidebarTab, snippets, removeSnippet, focusedPane, sessions } = useStore();
+  const { isSidebarOpen, activeSidebarTab, snippets, removeSnippet, focusedPane } = useStore();
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [editingSnippet, setEditingSnippet] = useState(null);
 

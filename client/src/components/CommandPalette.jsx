@@ -16,6 +16,8 @@ export default function CommandPalette() {
       // Ctrl+P or Cmd+P
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
         e.preventDefault();
+        setSearch('');
+        setSelectedIndex(0);
         setIsOpen(true);
       }
       
@@ -32,8 +34,6 @@ export default function CommandPalette() {
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.focus();
-      setSearch('');
-      setSelectedIndex(0);
     }
   }, [isOpen]);
 
