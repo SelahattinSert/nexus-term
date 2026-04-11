@@ -227,8 +227,18 @@ export default function NexusTerm({ sessionId }) {
       }
     };
 
+    const executeCommandListener = (e) => {
+      if (e.detail.sessionId === sessionId && ws.readyState === WebSocket.OPEN) {
+        ws.send(`NEXUS_CMD:${JSON.stringify({
+          type: 'ACTION',
+          command: e.detail.command
+        })}`);
+      }
+    };
+
     window.addEventListener(`NEXUS_ACTION_${sessionId}`, actionListener);
     window.addEventListener(`NEXUS_META_ACTION_${sessionId}`, metaActionListener);
+    window.addEventListener('nexus-execute-command', executeCommandListener);
 
     // ── CLEANUP: Memory leak prevention ──────────────────────────────
     return () => {

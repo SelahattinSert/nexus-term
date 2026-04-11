@@ -4,6 +4,8 @@ import TerminalGrid from './components/TerminalGrid';
 import FileManager from './components/FileManager';
 import GitPanel from './components/GitPanel';
 import ActivityBar from './components/ActivityBar';
+import SnippetsPanel from './components/SnippetsPanel';
+import CommandPalette from './components/CommandPalette';
 import { useStore } from './store';
 
 function App() {
@@ -53,10 +55,12 @@ function App() {
         <ActivityBar />
         <FileManager />
         <GitPanel />
+        <SnippetsPanel />
         <div className="flex-1 overflow-hidden relative">
           <TerminalGrid />
         </div>
       </main>
+      <CommandPalette />
     </div>
   );
 }
