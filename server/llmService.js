@@ -5,7 +5,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const MODEL_PATH = path.join(__dirname, 'models', 'qwen2.5-coder-1.5b-instruct-q4_k_m.gguf');
+const DEFAULT_MODEL_PATH = path.join(__dirname, 'models', 'qwen2.5-coder-1.5b-instruct-q4_k_m.gguf');
+const MODEL_PATH = process.env.MODEL_PATH ? path.resolve(process.env.MODEL_PATH) : DEFAULT_MODEL_PATH;
 
 let llama = null;
 let model = null;

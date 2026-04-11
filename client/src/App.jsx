@@ -6,6 +6,7 @@ import GitPanel from './components/GitPanel';
 import ActivityBar from './components/ActivityBar';
 import SnippetsPanel from './components/SnippetsPanel';
 import CommandPalette from './components/CommandPalette';
+import ErrorBoundary from './components/ErrorBoundary';
 import { useStore } from './store';
 
 function App() {
@@ -21,47 +22,49 @@ function App() {
   const focusedSession = sessions.find(s => s.id === focusedPane);
 
   return (
-    <div className="flex flex-col w-full h-full bg-[#11111b] text-white">
-      <TabBar />
+    <ErrorBoundary>
+      <div className="flex flex-col w-full h-full bg-[#11111b] text-white">
+        <TabBar />
 
-      <header className="bg-[#181825] text-xs py-1 px-4 flex gap-4 text-[#a6adc8] border-b border-[#313244] min-h-[24px] items-center shrink-0">
-        {focusedSession ? (
-          <>
-            <span className="truncate">📁 {focusedSession.pwd}</span>
-            {focusedSession.gitStatus && (
-              <span className="text-[#a6e3a1] shrink-0">
-                🌿 on branch: {focusedSession.gitStatus.branch} {focusedSession.gitStatus.changedFiles > 0 ? `[+${focusedSession.gitStatus.changedFiles}]` : ''}
-              </span>
-            )}
-          </>
-        ) : (
-          <span>No terminal focused</span>
-        )}
-        <div className="ml-auto flex gap-4 text-[#6c7086]">
-          {systemStats && (
+        <header className="bg-[#181825] text-xs py-1 px-4 flex gap-4 text-[#a6adc8] border-b border-[#313244] min-h-[24px] items-center shrink-0">
+          {focusedSession ? (
             <>
-              <span title={`RAM: ${Math.round(systemStats.usedMem / 1073741824 * 10) / 10}GB / ${Math.round(systemStats.totalMem / 1073741824 * 10) / 10}GB`}>
-                🧠 {systemStats.ram}%
-              </span>
-              <span>
-                💻 {systemStats.cpu}%
-              </span>
+              <span className="truncate">📁 {focusedSession.pwd}</span>
+              {focusedSession.gitStatus && (
+                <span className="text-[#a6e3a1] shrink-0">
+                  🌿 on branch: {focusedSession.gitStatus.branch} {focusedSession.gitStatus.changedFiles > 0 ? `[+${focusedSession.gitStatus.changedFiles}]` : ''}
+                </span>
+              )}
             </>
+          ) : (
+            <span>No terminal focused</span>
           )}
-        </div>
-      </header>
+          <div className="ml-auto flex gap-4 text-[#6c7086]">
+            {systemStats && (
+              <>
+                <span title={`RAM: ${Math.round(systemStats.usedMem / 1073741824 * 10) / 10}GB / ${Math.round(systemStats.totalMem / 1073741824 * 10) / 10}GB`}>
+                  🧠 {systemStats.ram}%
+                </span>
+                <span>
+                  💻 {systemStats.cpu}%
+                </span>
+              </>
+            )}
+          </div>
+        </header>
 
-      <main className="flex-1 overflow-hidden relative flex">
-        <ActivityBar />
-        <FileManager />
-        <GitPanel />
-        <SnippetsPanel />
-        <div className="flex-1 overflow-hidden relative">
-          <TerminalGrid />
-        </div>
-      </main>
-      <CommandPalette />
-    </div>
+        <main className="flex-1 overflow-hidden relative flex">
+          <ActivityBar />
+          <FileManager />
+          <GitPanel />
+          <SnippetsPanel />
+          <div className="flex-1 overflow-hidden relative">
+            <TerminalGrid />
+          </div>
+        </main>
+        <CommandPalette />
+      </div>
+    </ErrorBoundary>
   );
 }
 
