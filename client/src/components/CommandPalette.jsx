@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Terminal, Star, Plus, Settings, X } from 'lucide-react';
+import { Search, Terminal, Star, Plus, Settings, X, Palette } from 'lucide-react';
 import { useStore } from '../store';
 import VisualCommandBuilder from './VisualCommandBuilder';
 
 export default function CommandPalette() {
-  const { snippets, focusedPane, createSession, toggleSidebar } = useStore();
+  const { snippets, focusedPane, createSession, toggleSidebar, setTheme } = useStore();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -61,7 +61,14 @@ export default function CommandPalette() {
     }
   }));
 
-  const allCommands = [...snippetCommands, ...defaultCommands];
+  const themeCommands = [
+    { id: 'theme_mocha', name: 'Theme: Catppuccin Mocha', icon: Palette, action: () => { setTheme('theme-mocha'); setIsOpen(false); } },
+    { id: 'theme_macchiato', name: 'Theme: Catppuccin Macchiato', icon: Palette, action: () => { setTheme('theme-macchiato'); setIsOpen(false); } },
+    { id: 'theme_frappe', name: 'Theme: Catppuccin Frappe', icon: Palette, action: () => { setTheme('theme-frappe'); setIsOpen(false); } },
+    { id: 'theme_latte', name: 'Theme: Catppuccin Latte', icon: Palette, action: () => { setTheme('theme-latte'); setIsOpen(false); } }
+  ];
+
+  const allCommands = [...snippetCommands, ...defaultCommands, ...themeCommands];
   
   const filteredCommands = allCommands.filter(c => 
     c.name.toLowerCase().includes(search.toLowerCase()) || 
@@ -88,10 +95,10 @@ export default function CommandPalette() {
       {isOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-start justify-center pt-[15vh] z-50 p-4 backdrop-blur-sm" onClick={() => setIsOpen(false)}>
           <div 
-            className="bg-[#181825] border border-[#313244] rounded-xl shadow-2xl w-full max-w-xl flex flex-col overflow-hidden"
+            className="bg-ctp-mantle border border-ctp-surface0 rounded-xl shadow-2xl w-full max-w-xl flex flex-col overflow-hidden"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center border-b border-[#313244] px-4 py-3 gap-3 text-[#cdd6f4]">
+            <div className="flex items-center border-b border-ctp-surface0 px-4 py-3 gap-3 text-ctp-text">
               <Search size={18} className="text-[#6c7086]" />
               <input 
                 ref={inputRef}
@@ -102,7 +109,7 @@ export default function CommandPalette() {
                 placeholder="Search commands, snippets..."
                 className="bg-transparent flex-1 focus:outline-none text-sm"
               />
-              <button onClick={() => setIsOpen(false)} className="text-[#a6adc8] hover:text-[#f38ba8] transition-colors">
+              <button onClick={() => setIsOpen(false)} className="text-ctp-subtext0 hover:text-ctp-red transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -116,9 +123,9 @@ export default function CommandPalette() {
                     key={cmd.id}
                     onClick={() => cmd.action()}
                     onMouseEnter={() => setSelectedIndex(idx)}
-                    className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer text-sm transition-colors ${idx === selectedIndex ? 'bg-[#313244] text-[#cdd6f4]' : 'text-[#a6adc8] hover:bg-[#1e1e2e]'}`}
+                    className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer text-sm transition-colors ${idx === selectedIndex ? 'bg-ctp-surface0 text-ctp-text' : 'text-ctp-subtext0 hover:bg-ctp-base'}`}
                   >
-                    <cmd.icon size={16} className={idx === selectedIndex ? 'text-[#89b4fa]' : 'text-[#6c7086]'} />
+                    <cmd.icon size={16} className={idx === selectedIndex ? 'text-ctp-blue' : 'text-[#6c7086]'} />
                     <div className="flex flex-col">
                       <span>{cmd.name}</span>
                       {cmd.description && (

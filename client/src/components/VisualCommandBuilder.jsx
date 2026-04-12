@@ -78,14 +78,14 @@ export default function VisualCommandBuilder({ onClose, initialData }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-      <div className="bg-[#181825] border border-[#313244] rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+      <div className="bg-ctp-mantle border border-ctp-surface0 rounded-xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-[#313244]">
-          <h2 className="text-lg font-semibold text-[#cdd6f4]">
+        <div className="flex items-center justify-between p-4 border-b border-ctp-surface0">
+          <h2 className="text-lg font-semibold text-ctp-text">
             {initialData ? 'Edit Snippet' : 'Visual CLI Builder'}
           </h2>
-          <button onClick={onClose} className="text-[#a6adc8] hover:text-[#f38ba8] transition-colors">
+          <button onClick={onClose} className="text-ctp-subtext0 hover:text-ctp-red transition-colors">
             <X size={20} />
           </button>
         </div>
@@ -96,24 +96,24 @@ export default function VisualCommandBuilder({ onClose, initialData }) {
           {/* Basic Info */}
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-[#a6adc8] mb-1">Snippet Name</label>
+              <label className="block text-xs font-medium text-ctp-subtext0 mb-1">Snippet Name</label>
               <input 
                 type="text" 
                 value={name}
                 onChange={e => setName(e.target.value)}
                 placeholder="e.g. Start Docker Dev DB"
-                className="w-full bg-[#11111b] border border-[#313244] rounded px-3 py-2 text-[#cdd6f4] focus:outline-none focus:border-[#89b4fa] text-sm"
+                className="w-full bg-ctp-crust border border-ctp-surface0 rounded px-3 py-2 text-ctp-text focus:outline-none focus:border-ctp-blue text-sm"
               />
             </div>
             
             <div>
-              <label className="block text-xs font-medium text-[#a6adc8] mb-1">Base Command</label>
+              <label className="block text-xs font-medium text-ctp-subtext0 mb-1">Base Command</label>
               <input 
                 type="text" 
                 value={baseCmd}
                 onChange={e => setBaseCmd(e.target.value)}
                 placeholder="e.g. docker run"
-                className="w-full bg-[#11111b] border border-[#313244] rounded px-3 py-2 text-[#a6e3a1] font-mono focus:outline-none focus:border-[#89b4fa] text-sm"
+                className="w-full bg-ctp-crust border border-ctp-surface0 rounded px-3 py-2 text-ctp-green font-mono focus:outline-none focus:border-ctp-blue text-sm"
               />
             </div>
           </div>
@@ -121,15 +121,15 @@ export default function VisualCommandBuilder({ onClose, initialData }) {
           {/* Builder Parts */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <label className="block text-xs font-medium text-[#a6adc8]">Parameters & Arguments</label>
+              <label className="block text-xs font-medium text-ctp-subtext0">Parameters & Arguments</label>
               <div className="flex gap-2">
-                <button onClick={() => addPart('flag')} className="text-xs bg-[#313244] hover:bg-[#45475a] px-2 py-1 rounded text-[#cdd6f4] transition-colors flex items-center gap-1">
+                <button onClick={() => addPart('flag')} className="text-xs bg-ctp-surface0 hover:bg-ctp-surface1 px-2 py-1 rounded text-ctp-text transition-colors flex items-center gap-1">
                   <Plus size={12} /> Flag (-f)
                 </button>
-                <button onClick={() => addPart('kv')} className="text-xs bg-[#313244] hover:bg-[#45475a] px-2 py-1 rounded text-[#cdd6f4] transition-colors flex items-center gap-1">
+                <button onClick={() => addPart('kv')} className="text-xs bg-ctp-surface0 hover:bg-ctp-surface1 px-2 py-1 rounded text-ctp-text transition-colors flex items-center gap-1">
                   <Plus size={12} /> Key-Value (--k=v)
                 </button>
-                <button onClick={() => addPart('arg')} className="text-xs bg-[#313244] hover:bg-[#45475a] px-2 py-1 rounded text-[#cdd6f4] transition-colors flex items-center gap-1">
+                <button onClick={() => addPart('arg')} className="text-xs bg-ctp-surface0 hover:bg-ctp-surface1 px-2 py-1 rounded text-ctp-text transition-colors flex items-center gap-1">
                   <Plus size={12} /> Argument ("str")
                 </button>
               </div>
@@ -137,28 +137,28 @@ export default function VisualCommandBuilder({ onClose, initialData }) {
 
             <div className="space-y-2">
               {parts.length === 0 && (
-                <div className="text-center py-6 text-[#6c7086] border border-dashed border-[#313244] rounded-lg text-sm">
+                <div className="text-center py-6 text-[#6c7086] border border-dashed border-ctp-surface0 rounded-lg text-sm">
                   No parameters added. Click above to add flags or arguments.
                 </div>
               )}
               {parts.map((p) => (
-                <div key={p.id} className="flex gap-2 items-center bg-[#11111b] p-2 rounded border border-[#313244]">
+                <div key={p.id} className="flex gap-2 items-center bg-ctp-crust p-2 rounded border border-ctp-surface0">
                   {p.type === 'flag' && (
                     <>
-                      <span className="text-[#a6adc8] text-xs font-mono w-16 text-center bg-[#181825] px-2 py-1 rounded">Flag</span>
+                      <span className="text-ctp-subtext0 text-xs font-mono w-16 text-center bg-ctp-mantle px-2 py-1 rounded">Flag</span>
                       <input 
                         type="text" 
                         value={p.key} 
                         onChange={e => updatePart(p.id, 'key', e.target.value)} 
                         placeholder="-f or --force"
-                        className="flex-1 bg-transparent text-[#f9e2af] font-mono text-sm focus:outline-none"
+                        className="flex-1 bg-transparent text-ctp-yellow font-mono text-sm focus:outline-none"
                       />
                     </>
                   )}
                   
                   {p.type === 'arg' && (
                     <>
-                      <span className="text-[#a6adc8] text-xs font-mono w-16 text-center bg-[#181825] px-2 py-1 rounded">Arg</span>
+                      <span className="text-ctp-subtext0 text-xs font-mono w-16 text-center bg-ctp-mantle px-2 py-1 rounded">Arg</span>
                       <input 
                         type="text" 
                         value={p.value} 
@@ -171,13 +171,13 @@ export default function VisualCommandBuilder({ onClose, initialData }) {
 
                   {p.type === 'kv' && (
                     <>
-                      <span className="text-[#a6adc8] text-xs font-mono w-16 text-center bg-[#181825] px-2 py-1 rounded">K=V</span>
+                      <span className="text-ctp-subtext0 text-xs font-mono w-16 text-center bg-ctp-mantle px-2 py-1 rounded">K=V</span>
                       <input 
                         type="text" 
                         value={p.key} 
                         onChange={e => updatePart(p.id, 'key', e.target.value)} 
                         placeholder="--port"
-                        className="w-1/3 bg-transparent text-[#f9e2af] font-mono text-sm focus:outline-none border-r border-[#313244] pr-2"
+                        className="w-1/3 bg-transparent text-ctp-yellow font-mono text-sm focus:outline-none border-r border-ctp-surface0 pr-2"
                       />
                       <span className="text-[#6c7086] px-1">=</span>
                       <input 
@@ -190,7 +190,7 @@ export default function VisualCommandBuilder({ onClose, initialData }) {
                     </>
                   )}
 
-                  <button onClick={() => removePart(p.id)} className="p-1 text-[#6c7086] hover:text-[#f38ba8] transition-colors">
+                  <button onClick={() => removePart(p.id)} className="p-1 text-[#6c7086] hover:text-ctp-red transition-colors">
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -200,19 +200,19 @@ export default function VisualCommandBuilder({ onClose, initialData }) {
         </div>
 
         {/* Footer & Live Preview */}
-        <div className="p-4 border-t border-[#313244] bg-[#11111b] rounded-b-xl flex flex-col gap-4">
+        <div className="p-4 border-t border-ctp-surface0 bg-ctp-crust rounded-b-xl flex flex-col gap-4">
           <div className="flex flex-col gap-1">
-            <span className="text-[#a6adc8] text-xs font-medium">Live Preview</span>
-            <div className="bg-[#181825] p-3 rounded border border-[#313244] text-[#cdd6f4] font-mono text-sm overflow-x-auto whitespace-nowrap">
+            <span className="text-ctp-subtext0 text-xs font-medium">Live Preview</span>
+            <div className="bg-ctp-mantle p-3 rounded border border-ctp-surface0 text-ctp-text font-mono text-sm overflow-x-auto whitespace-nowrap">
               {generateCommand() || <span className="text-[#6c7086]">Command will appear here...</span>}
             </div>
           </div>
           
           <div className="flex justify-end gap-3">
-            <button onClick={onClose} className="px-4 py-2 rounded text-[#cdd6f4] hover:bg-[#313244] transition-colors text-sm font-medium">
+            <button onClick={onClose} className="px-4 py-2 rounded text-ctp-text hover:bg-ctp-surface0 transition-colors text-sm font-medium">
               Cancel
             </button>
-            <button onClick={handleSave} className="px-4 py-2 rounded bg-[#89b4fa] text-[#11111b] hover:bg-[#b4befe] transition-colors flex items-center gap-2 text-sm font-medium">
+            <button onClick={handleSave} className="px-4 py-2 rounded bg-ctp-blue text-ctp-crust hover:bg-ctp-lavender transition-colors flex items-center gap-2 text-sm font-medium">
               <Save size={16} /> Save Snippet
             </button>
           </div>

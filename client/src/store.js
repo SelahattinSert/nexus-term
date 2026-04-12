@@ -21,6 +21,9 @@ export const useStore = create(
       isSidebarOpen: false,
       activeSidebarTab: 'explorer', // 'explorer' or 'git' or 'snippets'
 
+      // Theme
+      theme: 'theme-mocha',
+
       // Snippets
       snippets: [],
 
@@ -30,6 +33,7 @@ export const useStore = create(
       // --- UI Management ---
       toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
       setActiveSidebarTab: (tab) => set({ activeSidebarTab: tab, isSidebarOpen: true }),
+      setTheme: (theme) => set({ theme }),
 
       // --- Snippet Management ---
       addSnippet: (snippet) => set((state) => ({
@@ -162,6 +166,7 @@ export const useStore = create(
         snippets: state.snippets,
         activeSidebarTab: state.activeSidebarTab,
         isSidebarOpen: state.isSidebarOpen,
+        theme: state.theme,
       }),
     }
   )
