@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Plus, Trash2, Save } from 'lucide-react';
 import { useStore } from '../store';
+import { toast } from 'sonner';
 
 export default function VisualCommandBuilder({ onClose, initialData }) {
   const { addSnippet, removeSnippet } = useStore();
@@ -59,7 +60,7 @@ export default function VisualCommandBuilder({ onClose, initialData }) {
 
   const handleSave = () => {
     if (!name.trim() || !baseCmd.trim()) {
-      alert("Name and Base Command are required.");
+      toast.error("Name and Base Command are required.");
       return;
     }
     
@@ -72,6 +73,7 @@ export default function VisualCommandBuilder({ onClose, initialData }) {
       command: generateCommand(),
     });
     onClose();
+    toast.success("Snippet saved successfully.");
   };
 
   return (

@@ -8,6 +8,7 @@ import SnippetsPanel from './components/SnippetsPanel';
 import CommandPalette from './components/CommandPalette';
 import ErrorBoundary from './components/ErrorBoundary';
 import { useStore } from './store';
+import { Toaster } from 'sonner';
 
 function App() {
   const { sessions, focusedPane, createSession, systemStats } = useStore();
@@ -23,6 +24,7 @@ function App() {
 
   return (
     <ErrorBoundary>
+      <Toaster theme="dark" position="bottom-right" richColors />
       <div className="flex flex-col w-full h-full bg-[#11111b] text-white">
         <TabBar />
 
