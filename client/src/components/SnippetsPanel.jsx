@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../store';
 import { Play, Trash2, Plus, Edit } from 'lucide-react';
 import VisualCommandBuilder from './VisualCommandBuilder';
+import { toast } from 'sonner';
 
 export default function SnippetsPanel() {
   const { isSidebarOpen, activeSidebarTab, snippets, removeSnippet, focusedPane } = useStore();
@@ -12,7 +13,7 @@ export default function SnippetsPanel() {
 
   const handleRun = (command) => {
     if (!focusedPane) {
-      alert("Please focus a terminal pane first.");
+      toast.error("Please focus a terminal pane first.");
       return;
     }
     
