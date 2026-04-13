@@ -11,7 +11,12 @@ import { useStore } from './store';
 import { Toaster } from 'sonner';
 
 function App() {
-  const { sessions, focusedPane, createSession, systemStats } = useStore();
+  const { sessions, focusedPane, createSession, systemStats, theme } = useStore();
+
+  useEffect(() => {
+    // Apply theme to document element
+    document.documentElement.className = theme;
+  }, [theme]);
 
   useEffect(() => {
     // Create initial session if none exists
@@ -25,15 +30,15 @@ function App() {
   return (
     <ErrorBoundary>
       <Toaster theme="dark" position="bottom-right" richColors />
-      <div className="flex flex-col w-full h-full bg-[#11111b] text-white">
+      <div className="flex flex-col w-full h-full bg-ctp-crust text-white">
         <TabBar />
 
-        <header className="bg-[#181825] text-xs py-1 px-4 flex gap-4 text-[#a6adc8] border-b border-[#313244] min-h-[24px] items-center shrink-0">
+        <header className="bg-ctp-mantle text-xs py-1 px-4 flex gap-4 text-ctp-subtext0 border-b border-ctp-surface0 min-h-[24px] items-center shrink-0">
           {focusedSession ? (
             <>
               <span className="truncate">📁 {focusedSession.pwd}</span>
               {focusedSession.gitStatus && (
-                <span className="text-[#a6e3a1] shrink-0">
+                <span className="text-ctp-green shrink-0">
                   🌿 on branch: {focusedSession.gitStatus.branch} {focusedSession.gitStatus.changedFiles > 0 ? `[+${focusedSession.gitStatus.changedFiles}]` : ''}
                 </span>
               )}

@@ -80,9 +80,9 @@ export default function FileManager() {
   };
 
   return (
-    <div className="w-64 flex-shrink-0 bg-[#181825] border-r border-[#313244] flex flex-col h-full overflow-hidden text-sm">
-      <div className="p-3 border-b border-[#313244] bg-[#11111b] font-semibold text-[#cdd6f4] flex items-center gap-2 shrink-0">
-        <FolderOpen size={16} className="text-[#89b4fa]" />
+    <div className="w-64 flex-shrink-0 bg-ctp-mantle border-r border-ctp-surface0 flex flex-col h-full overflow-hidden text-sm">
+      <div className="p-3 border-b border-ctp-surface0 bg-ctp-crust font-semibold text-ctp-text flex items-center gap-2 shrink-0">
+        <FolderOpen size={16} className="text-ctp-blue" />
         <span className="truncate">Explorer</span>
       </div>
       
@@ -90,9 +90,9 @@ export default function FileManager() {
         {!focusedSession ? (
           <div className="text-[#6c7086] text-xs italic p-4 text-center">Select a terminal to view files</div>
         ) : loading ? (
-          <div className="text-[#a6adc8] text-xs p-4 text-center animate-pulse">Loading files...</div>
+          <div className="text-ctp-subtext0 text-xs p-4 text-center animate-pulse">Loading files...</div>
         ) : error ? (
-          <div className="text-[#f38ba8] text-xs p-3 bg-[#313244] rounded flex gap-2 items-start break-words">
+          <div className="text-ctp-red text-xs p-3 bg-ctp-surface0 rounded flex gap-2 items-start break-words">
             <AlertCircle size={14} className="shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
@@ -104,13 +104,13 @@ export default function FileManager() {
               <li 
                 key={idx} 
                 onDoubleClick={() => handleDoubleClick(file)}
-                className="flex items-center gap-2 px-2 py-1.5 hover:bg-[#313244] rounded cursor-pointer text-[#cdd6f4] transition-colors select-none"
+                className="flex items-center gap-2 px-2 py-1.5 hover:bg-ctp-surface0 rounded cursor-pointer text-ctp-text transition-colors select-none"
                 title={file.name}
               >
                 {file.isDir ? (
-                  <Folder size={14} className="text-[#89b4fa] shrink-0" fill="currentColor" fillOpacity={0.2} />
+                  <Folder size={14} className="text-ctp-blue shrink-0" fill="currentColor" fillOpacity={0.2} />
                 ) : (
-                  <File size={14} className="text-[#a6adc8] shrink-0" />
+                  <File size={14} className="text-ctp-subtext0 shrink-0" />
                 )}
                 <span className="truncate text-xs">{file.name}</span>
               </li>

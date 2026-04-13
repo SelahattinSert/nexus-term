@@ -9,10 +9,32 @@ export default function NexusTerm({ sessionId }) {
   const divRef = useRef(null);
   const [suggestions, setSuggestions] = useState([]);
   const suggestionsRef = useRef([]);
+  const { theme } = useStore();
+  const termRef = useRef(null);
 
   useEffect(() => {
     suggestionsRef.current = suggestions;
   }, [suggestions]);
+
+  // Update terminal theme when zustand theme changes
+  useEffect(() => {
+    if (!termRef.current) return;
+    
+    // We can read the CSS variables from the document element since we set it in App.jsx
+    // Wait for the next tick to ensure CSS is applied
+    setTimeout(() => {
+      const computedStyle = getComputedStyle(document.documentElement);
+      const bg = computedStyle.getPropertyValue('--ctp-base').trim() || '#1e1e2e';
+      const fg = computedStyle.getPropertyValue('--ctp-text').trim() || '#cdd6f4';
+      const cursor = computedStyle.getPropertyValue('--ctp-red').trim() || '#f5e0dc';
+      
+      termRef.current.options.theme = {
+        background: bg,
+        foreground: fg,
+        cursor: cursor,
+      };
+    }, 50);
+  }, [theme]);
 
   useEffect(() => {
     // ── TOKEN: Secure retrieval from URL ──────────────────────────────
@@ -23,16 +45,23 @@ export default function NexusTerm({ sessionId }) {
     }
 
     // ── TERMINAL CREATION ──────────────────────────────────────
+    const computedStyle = getComputedStyle(document.documentElement);
+    const bg = computedStyle.getPropertyValue('--ctp-base').trim() || '#1e1e2e';
+    const fg = computedStyle.getPropertyValue('--ctp-text').trim() || '#cdd6f4';
+    const cursor = computedStyle.getPropertyValue('--ctp-red').trim() || '#f5e0dc';
+
     const term = new Terminal({
       fontFamily: '"JetBrains Mono", "Fira Code", monospace',
       fontSize: 14,
       theme: {
-        background: '#1e1e2e',
-        foreground: '#cdd6f4',
-        cursor: '#f5e0dc',
+        background: bg,
+        foreground: fg,
+        cursor: cursor,
       },
       cursorBlink: true,
     });
+    
+    termRef.current = term;
 
     const fitAddon = new FitAddon();
     const webLinksAddon = new WebLinksAddon();
@@ -254,17 +283,17 @@ export default function NexusTerm({ sessionId }) {
   return (
     <div className="relative w-full h-full">
       {suggestions.length > 0 && (
-        <div className="absolute bottom-4 right-4 z-40 bg-[#313244] border border-[#45475a] rounded-md shadow-lg p-2 flex flex-col gap-1 text-sm text-[#a6adc8] pointer-events-none animate-in fade-in">
+        <div className="absolute bottom-4 right-4 z-40 bg-ctp-surface0 border border-ctp-surface1 rounded-md shadow-lg p-2 flex flex-col gap-1 text-sm text-ctp-subtext0 pointer-events-none animate-in fade-in">
           <div className="text-xs text-[#6c7086] mb-1 uppercase tracking-wider">Suggestions</div>
           {suggestions.map((s, i) => (
-            <div key={i} className="px-2 py-0.5 rounded bg-[#1e1e2e] text-[#cdd6f4]">
+            <div key={i} className="px-2 py-0.5 rounded bg-ctp-base text-ctp-text">
               {s}
             </div>
           ))}
           <div className="text-[10px] text-[#6c7086] mt-1">Press Tab to complete natively</div>
         </div>
       )}
-      <div ref={divRef} className="w-full h-full bg-[#1e1e2e]" />
+      <div ref={divRef} className="w-full h-full bg-ctp-base" />
     </div>
   );
 }

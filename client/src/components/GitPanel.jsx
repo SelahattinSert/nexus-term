@@ -27,16 +27,16 @@ export default function GitPanel() {
   };
 
   return (
-    <div className="w-64 flex-shrink-0 bg-[#181825] border-r border-[#313244] flex flex-col h-full overflow-hidden text-sm">
-      <div className="p-3 border-b border-[#313244] bg-[#11111b] font-semibold text-[#cdd6f4] flex items-center justify-between shrink-0">
+    <div className="w-64 flex-shrink-0 bg-ctp-mantle border-r border-ctp-surface0 flex flex-col h-full overflow-hidden text-sm">
+      <div className="p-3 border-b border-ctp-surface0 bg-ctp-crust font-semibold text-ctp-text flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
-          <GitBranch size={16} className="text-[#89b4fa]" />
+          <GitBranch size={16} className="text-ctp-blue" />
           <span className="truncate">Source Control</span>
         </div>
         <button 
           onClick={handleFetch} 
           disabled={!gitStatus || isFetching}
-          className={`p-1 rounded hover:bg-[#313244] transition-colors ${!gitStatus ? 'opacity-50 cursor-not-allowed' : 'text-[#a6adc8] hover:text-[#cdd6f4]'}`}
+          className={`p-1 rounded hover:bg-ctp-surface0 transition-colors ${!gitStatus ? 'opacity-50 cursor-not-allowed' : 'text-ctp-subtext0 hover:text-ctp-text'}`}
           title="Fetch from Remote"
         >
           <RefreshCw size={14} className={isFetching ? "animate-spin" : ""} />
@@ -59,12 +59,12 @@ export default function GitPanel() {
                   <li 
                     key={branch}
                     onClick={() => handleBranchClick(branch)}
-                    className="flex items-center justify-between px-2 py-1.5 hover:bg-[#313244] rounded cursor-pointer text-[#cdd6f4] transition-colors group"
+                    className="flex items-center justify-between px-2 py-1.5 hover:bg-ctp-surface0 rounded cursor-pointer text-ctp-text transition-colors group"
                   >
-                    <span className={`truncate text-xs ${branch === gitStatus.branch ? 'font-bold text-[#89b4fa]' : ''}`}>
+                    <span className={`truncate text-xs ${branch === gitStatus.branch ? 'font-bold text-ctp-blue' : ''}`}>
                       {branch}
                     </span>
-                    {branch === gitStatus.branch && <Check size={14} className="text-[#a6e3a1]" />}
+                    {branch === gitStatus.branch && <Check size={14} className="text-ctp-green" />}
                   </li>
                 ))}
               </ul>
@@ -81,7 +81,7 @@ export default function GitPanel() {
                       <li 
                         key={branch}
                         onClick={() => handleBranchClick(checkoutName)}
-                        className="flex items-center justify-between px-2 py-1.5 hover:bg-[#313244] rounded cursor-pointer text-[#cdd6f4] transition-colors group opacity-80 hover:opacity-100"
+                        className="flex items-center justify-between px-2 py-1.5 hover:bg-ctp-surface0 rounded cursor-pointer text-ctp-text transition-colors group opacity-80 hover:opacity-100"
                       >
                         <span className="truncate text-xs">
                           {branch}
@@ -97,7 +97,7 @@ export default function GitPanel() {
             <div>
               <div className="text-xs uppercase tracking-wider text-[#6c7086] font-semibold mb-2 px-1 flex justify-between">
                 <span>Changes</span>
-                <span className="bg-[#313244] text-[#cdd6f4] px-1.5 rounded-full text-[10px]">{gitStatus.changedFiles}</span>
+                <span className="bg-ctp-surface0 text-ctp-text px-1.5 rounded-full text-[10px]">{gitStatus.changedFiles}</span>
               </div>
               {gitStatus.files?.length === 0 ? (
                 <div className="text-[#6c7086] text-xs italic px-2">No local changes</div>
@@ -108,13 +108,13 @@ export default function GitPanel() {
                     const isDeleted = f.status.includes('D');
                     const isModified = f.status.includes('M');
                     
-                    let color = 'text-[#cdd6f4]';
-                    if (isAdded) color = 'text-[#a6e3a1]'; // green
-                    else if (isDeleted) color = 'text-[#f38ba8]'; // red
-                    else if (isModified) color = 'text-[#f9e2af]'; // yellow
+                    let color = 'text-ctp-text';
+                    if (isAdded) color = 'text-ctp-green'; // green
+                    else if (isDeleted) color = 'text-ctp-red'; // red
+                    else if (isModified) color = 'text-ctp-yellow'; // yellow
 
                     return (
-                      <li key={idx} className="flex items-center gap-2 px-2 py-1.5 hover:bg-[#313244] rounded cursor-default transition-colors">
+                      <li key={idx} className="flex items-center gap-2 px-2 py-1.5 hover:bg-ctp-surface0 rounded cursor-default transition-colors">
                         <span className={`text-[10px] font-bold w-4 text-center shrink-0 ${color}`}>
                           {f.status.trim()}
                         </span>

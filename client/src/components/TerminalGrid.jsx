@@ -8,7 +8,7 @@ export default function TerminalGrid() {
 
   if (panes.length === 0) {
     return (
-      <div className="w-full h-full flex items-center justify-center text-[#a6adc8]">
+      <div className="w-full h-full flex items-center justify-center text-ctp-subtext0">
         No active terminals. Create one from the tab bar!
       </div>
     );
@@ -19,12 +19,12 @@ export default function TerminalGrid() {
   const gridRows = panes.length > 2 ? 'grid-rows-2' : 'grid-rows-1';
 
   return (
-    <div className={`w-full h-full grid ${gridCols} ${gridRows} gap-1 bg-[#11111b] p-1`}>
+    <div className={`w-full h-full grid ${gridCols} ${gridRows} gap-1 bg-ctp-crust p-1`}>
       {panes.map((paneId) => (
         <div 
           key={paneId}
           onClickCapture={() => setFocusedPane(paneId)}
-          className={`relative border ${focusedPane === paneId ? 'border-[#89b4fa]' : 'border-[#313244]'} bg-[#1e1e2e] overflow-hidden`}
+          className={`relative border ${focusedPane === paneId ? 'border-ctp-blue' : 'border-ctp-surface0'} bg-ctp-base overflow-hidden`}
         >
           <ErrorOverlay sessionId={paneId} />
           {/* Terminal Container - Absolute inset-0 forces strict height constraint for xterm.js fitAddon */}
