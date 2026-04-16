@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { SearchAddon } from '@xterm/addon-search';
+import { Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useStore } from '../store';
 import '@xterm/xterm/css/xterm.css';
 
@@ -11,6 +13,10 @@ export default function NexusTerm({ sessionId }) {
   const suggestionsRef = useRef([]);
   const { theme } = useStore();
   const termRef = useRef(null);
+  const searchAddonRef = useRef(null);
+  
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchText, setSearchText] = useState('');
 
   useEffect(() => {
     suggestionsRef.current = suggestions;
@@ -32,6 +38,8 @@ export default function NexusTerm({ sessionId }) {
         background: bg,
         foreground: fg,
         cursor: cursor,
+        selectionBackground: 'rgba(255, 255, 0, 0.5)', // Bright yellow, very visible
+        selectionInactiveBackground: 'rgba(255, 255, 0, 0.3)' // Still bright yellow when unfocused
       };
     }, 50);
   }, [theme]);
@@ -57,6 +65,8 @@ export default function NexusTerm({ sessionId }) {
         background: bg,
         foreground: fg,
         cursor: cursor,
+        selectionBackground: 'rgba(255, 255, 0, 0.5)',
+        selectionInactiveBackground: 'rgba(255, 255, 0, 0.3)'
       },
       cursorBlink: true,
     });
@@ -65,9 +75,14 @@ export default function NexusTerm({ sessionId }) {
 
     const fitAddon = new FitAddon();
     const webLinksAddon = new WebLinksAddon();
+    const searchAddon = new SearchAddon();
+    
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
+    term.loadAddon(searchAddon);
     term.open(divRef.current);
+    
+    searchAddonRef.current = searchAddon;
     
     // ── WEBSOCKET ────────────────────────────────────────────────
     const wsUrl = `ws://127.0.0.1:4000?token=${token}&sessionId=${sessionId}`;
@@ -176,8 +191,14 @@ export default function NexusTerm({ sessionId }) {
       }, 100);
     });
 
-    // ── CLIPBOARD: Copy/Paste support ────────────────────────────
+    // ── CLIPBOARD & HOTKEYS: Copy/Paste, Search support ────────────────────────────
     term.attachCustomKeyEventHandler((e) => {
+      // Ctrl+F: Open search
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyF' && e.type === 'keydown') {
+        setIsSearchOpen(true);
+        return false; // Prevent browser default search
+      }
+
       // Ctrl+C: Copy if text is selected, otherwise allow SIGINT
       if (e.ctrlKey && e.code === 'KeyC' && e.type === 'keydown') {
         const selection = term.getSelection();
@@ -282,6 +303,47 @@ export default function NexusTerm({ sessionId }) {
 
   return (
     <div className="relative w-full h-full">
+      {isSearchOpen && (
+        <div className="absolute top-2 right-6 z-50 bg-ctp-mantle border border-ctp-surface1 rounded-lg shadow-xl p-2 flex items-center gap-2 text-sm animate-in fade-in slide-in-from-top-2">
+          <Search size={14} className="text-ctp-subtext0" />
+          <input 
+            autoFocus
+            type="text"
+            value={searchText}
+            onChange={(e) => {
+              setSearchText(e.target.value);
+              searchAddonRef.current?.findNext(e.target.value, { incremental: true });
+            }}
+            onKeyDown={(e) => {
+               if(e.key === 'Enter') {
+                 searchAddonRef.current?.findNext(searchText);
+               } else if (e.key === 'Escape') {
+                 setIsSearchOpen(false);
+                 searchAddonRef.current?.clearSelection();
+                 termRef.current?.focus();
+               }
+            }}
+            placeholder="Find in terminal..."
+            className="bg-transparent border-none outline-none text-ctp-text w-48 placeholder-ctp-surface2"
+          />
+          <div className="flex items-center border-l border-ctp-surface0 pl-2 gap-1">
+            <button onClick={() => searchAddonRef.current?.findPrevious(searchText)} className="p-1 hover:bg-ctp-surface0 rounded text-ctp-subtext0 hover:text-ctp-text transition-colors">
+              <ChevronUp size={14} />
+            </button>
+            <button onClick={() => searchAddonRef.current?.findNext(searchText)} className="p-1 hover:bg-ctp-surface0 rounded text-ctp-subtext0 hover:text-ctp-text transition-colors">
+              <ChevronDown size={14} />
+            </button>
+            <button onClick={() => { 
+              setIsSearchOpen(false); 
+              searchAddonRef.current?.clearSelection(); 
+              termRef.current?.focus(); 
+            }} className="p-1 hover:bg-ctp-surface0 rounded text-ctp-subtext0 hover:text-ctp-red transition-colors ml-1">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {suggestions.length > 0 && (
         <div className="absolute bottom-4 right-4 z-40 bg-ctp-surface0 border border-ctp-surface1 rounded-md shadow-lg p-2 flex flex-col gap-1 text-sm text-ctp-subtext0 pointer-events-none animate-in fade-in">
           <div className="text-xs text-[#6c7086] mb-1 uppercase tracking-wider">Suggestions</div>
