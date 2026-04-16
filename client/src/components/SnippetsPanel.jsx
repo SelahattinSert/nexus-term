@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useStore } from '../store';
-import { Play, Trash2, Plus, Edit } from 'lucide-react';
+import { Play, Trash2, Plus, Edit, Download, Upload } from 'lucide-react';
 import VisualCommandBuilder from './VisualCommandBuilder';
 import { toast } from 'sonner';
 
 export default function SnippetsPanel() {
-  const { isSidebarOpen, activeSidebarTab, snippets, removeSnippet, focusedPane } = useStore();
+  const { isSidebarOpen, activeSidebarTab, snippets, removeSnippet, focusedPane, addSnippet } = useStore();
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [editingSnippet, setEditingSnippet] = useState(null);
+  const fileInputRef = useRef(null);
 
   if (!isSidebarOpen || activeSidebarTab !== 'snippets') return null;
 
@@ -17,10 +18,6 @@ export default function SnippetsPanel() {
       return;
     }
     
-    // We need to send the command to the focused terminal
-    // We can do this by using a custom event or a store method
-    // Since we don't have a direct reference to the terminal's websocket here,
-    // let's dispatch a custom event that NexusTerm can listen to.
     const event = new CustomEvent('nexus-execute-command', { 
       detail: { sessionId: focusedPane, command } 
     });
@@ -37,17 +34,94 @@ export default function SnippetsPanel() {
     setIsBuilderOpen(true);
   };
 
+  const handleExport = () => {
+    if (snippets.length === 0) {
+      toast.error("No snippets to export.");
+      return;
+    }
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(snippets, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", "nexusterm-snippets.json");
+    document.body.appendChild(downloadAnchorNode); // required for firefox
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+    toast.success("Snippets exported successfully.");
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const importedSnippets = JSON.parse(event.target.result);
+        if (!Array.isArray(importedSnippets)) {
+          throw new Error("Invalid format: expected an array.");
+        }
+        
+        let count = 0;
+        importedSnippets.forEach(snippet => {
+          if (snippet.name && snippet.command) {
+            addSnippet({
+              name: snippet.name,
+              command: snippet.command
+            });
+            count++;
+          }
+        });
+        
+        toast.success(`Imported ${count} snippets successfully.`);
+      } catch (err) {
+        toast.error("Failed to parse snippets file.");
+        console.error(err);
+      }
+      
+      // Reset input so the same file can be selected again if needed
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  };
+
   return (
     <div className="w-64 bg-ctp-mantle border-r border-ctp-surface0 flex flex-col h-full text-sm shrink-0">
       <div className="p-3 border-b border-ctp-surface0 flex justify-between items-center text-ctp-text font-medium">
         <span>Saved Snippets</span>
-        <button 
-          onClick={handleCreate}
-          className="text-ctp-blue hover:text-ctp-lavender transition-colors"
-          title="Create New Snippet"
-        >
-          <Plus size={18} />
-        </button>
+        <div className="flex gap-2">
+          <input 
+            type="file" 
+            accept=".json" 
+            ref={fileInputRef} 
+            onChange={handleFileChange} 
+            className="hidden" 
+          />
+          <button 
+            onClick={handleImportClick}
+            className="text-ctp-subtext0 hover:text-ctp-green transition-colors"
+            title="Import Snippets"
+          >
+            <Upload size={16} />
+          </button>
+          <button 
+            onClick={handleExport}
+            className="text-ctp-subtext0 hover:text-ctp-peach transition-colors"
+            title="Export Snippets"
+          >
+            <Download size={16} />
+          </button>
+          <button 
+            onClick={handleCreate}
+            className="text-ctp-blue hover:text-ctp-lavender transition-colors ml-1"
+            title="Create New Snippet"
+          >
+            <Plus size={18} />
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
