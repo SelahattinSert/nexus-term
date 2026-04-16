@@ -167,6 +167,9 @@ export const useStore = create(
         activeSidebarTab: state.activeSidebarTab,
         isSidebarOpen: state.isSidebarOpen,
         theme: state.theme,
+        sessions: state.sessions,
+        panes: state.panes,
+        focusedPane: state.focusedPane
       }),
     }
   )
