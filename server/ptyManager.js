@@ -20,60 +20,56 @@ const CMD_PREFIX = 'NEXUS_CMD:';
 
 const sessions = new Map(); // sessionId -> { pty, ws, timeout, currentPwd }
 
-export function handleConnection(ws, req, { getCpuUsage }) {
-  const url = new URL(req.url, 'http://localhost');
-  const sessionId = url.searchParams.get('sessionId');
-
-  if (!sessionId) return ws.close(4000, 'sessionId is required');
-
-  const platform = os.platform(); // Defined at the top so both blocks can access it
-
-  // ── RECONNECT LOGIC ──────────────────────────────────────────────
-  if (sessions.has(sessionId)) {
-    const session = sessions.get(sessionId);
-    clearTimeout(session.timeout);   // Stop the Reaper
-    session.timeout = null;
-    
-    if (session.dataListener) {
-      session.dataListener.dispose(); // Clear old listeners securely
+export function getAvailableShells() {
+  const shells = [];
+  const addShell = (name, executable) => {
+    if (fs.existsSync(executable)) {
+      shells.push({ name, path: executable });
     }
-    session.ws = ws;
-    
-    attachListeners(session);
-    
-    // Attach reaper to new connection
-    ws.on('close', () => {
-      // Prevent race condition: do not start reaper if a new websocket took over
-      if (session.ws !== ws) return;
-      
-      session.timeout = setTimeout(() => {
-        killPty(session.pty, platform);
-        setTimeout(() => {
-          try { killPty(session.pty, platform, true); } catch (_) {}
-          sessions.delete(sessionId);
-        }, 2000);
-      }, 3000);
-    });
-    
-    return;
+  };
+
+  // PowerShell 7+
+  addShell('PowerShell', 'C:\\Program Files\\PowerShell\\7\\pwsh.exe');
+  // Windows PowerShell
+  addShell('Windows PowerShell', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  // Command Prompt
+  addShell('Command Prompt', 'C:\\Windows\\System32\\cmd.exe');
+  // Git Bash
+  addShell('Git Bash', 'C:\\Program Files\\Git\\bin\\bash.exe');
+  
+  // Add WSL if available
+  const wslPath = 'C:\\Windows\\System32\\wsl.exe';
+  if (fs.existsSync(wslPath)) {
+      shells.push({ name: 'WSL', path: wslPath });
   }
 
-  // ── NEW SESSION ───────────────────────────────────────────────────
-  const shell = platform === 'win32'
-    ? 'powershell.exe'
-    : (process.env.SHELL || 'bash');
+  // Add Unix shells if applicable
+  if (os.platform() !== 'win32') {
+    addShell('bash', '/bin/bash');
+    addShell('zsh', '/bin/zsh');
+    addShell('sh', '/bin/sh');
+  }
+
+  return shells;
+}
+
+export function createTerminal(sessionId, options = {}) {
+  const platform = os.platform();
+  const shell = options.shell || (platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'bash'));
 
   const { shellArgs, shellEnv } = buildShellConfig(shell, platform);
 
   const ptyProcess = pty.spawn(shell, shellArgs, {
     name: 'xterm-256color',
-    cwd: process.env.HOME || process.env.USERPROFILE || process.cwd(),
+    cols: options.cols || 80,
+    rows: options.rows || 24,
+    cwd: options.cwd || process.env.HOME || process.env.USERPROFILE || process.cwd(),
     env: shellEnv,
   });
 
   const session = {
     pty: ptyProcess,
-    ws,
+    ws: null,
     timeout: null,
     currentPwd: process.env.HOME || process.cwd(),
     history: [],
@@ -82,17 +78,124 @@ export function handleConnection(ws, req, { getCpuUsage }) {
     oscBuffer: ''
   };
   sessions.set(sessionId, session);
-  attachListeners(session);
+  
+  // Attach PTY data listener immediately to buffer history
+  session.dataListener = ptyProcess.onData((data) => {
+    session.oscBuffer += data;
+    
+    // Process OSC 7 (Directory Change)
+    let match7;
+    const osc7Regex = /\x1b\]7;file:\/\/[^/]*(\/[^\x07]*)\x07/g;
+    while ((match7 = osc7Regex.exec(session.oscBuffer)) !== null) {
+      let newPwd = decodeURIComponent(match7[1]);
+      if (os.platform() === 'win32' && newPwd.match(/^\/[a-zA-Z]:\//)) {
+        newPwd = newPwd.slice(1);
+      }
+      session.currentPwd = newPwd;
+      if (session.ws && session.ws.readyState === 1) {
+        session.ws.send(META({ type: 'DIR_CHANGE', payload: newPwd }));
+        getGitStatus(newPwd, (gitInfo) => {
+          if (session.ws && session.ws.readyState === 1) session.ws.send(META({ type: 'GIT_STATUS', payload: gitInfo }));
+        });
+      }
+    }
+    session.oscBuffer = session.oscBuffer.replace(osc7Regex, '');
 
-  // ── REAPER: ZOMBIE PROCESS HUNTER ───────────────────────────────────
+    // Process OSC 999 (Structured Events from Shell Hook)
+    let match999;
+    const osc999Regex = /\x1b\]999;([^\x07]+)\x07/g;
+    while ((match999 = osc999Regex.exec(session.oscBuffer)) !== null) {
+      try {
+        const payload = JSON.parse(match999[1]);
+        if (payload.type === 'COMMAND_FAILED' && session.ws && session.ws.readyState === 1) {
+          handleCommandFailed(session, payload);
+        }
+      } catch (e) {
+        console.error('Failed to parse OSC 999 payload', e);
+      }
+    }
+    session.oscBuffer = session.oscBuffer.replace(osc999Regex, '');
+
+    // Prevent buffer memory leak
+    if (session.oscBuffer.length > 4000) {
+      session.oscBuffer = session.oscBuffer.slice(-2000);
+    }
+
+    // History management
+    session.history.push(data);
+    session.historySize += data.length;
+    while (session.historySize > 100000 && session.history.length > 1) {
+      session.historySize -= session.history.shift().length;
+    }
+    
+    // Clean OSC 999 from the raw data sent to xterm.js (so user doesn't see JSON)
+    let rawToFrontend = data.replace(/\x1b\]999;([^\x07]+)\x07/g, '');
+    
+    if (session.ws && session.ws.readyState === 1) {
+      session.ws.send(rawToFrontend); // RAW terminal output
+    }
+  });
+
+  return ptyProcess;
+}
+
+export function handleConnection(ws, req, { getCpuUsage }) {
+  const url = new URL(req.url, 'http://localhost');
+  const sessionId = url.searchParams.get('sessionId');
+
+  if (!sessionId) return ws.close(4000, 'sessionId is required');
+
+  const platform = os.platform(); // Defined at the top so both blocks can access it
+
+  // ── RECONNECT OR CONNECT LOGIC ───────────────────────────────────────
+  if (!sessions.has(sessionId)) {
+    // If not created via POST /api/terminals, create a default one
+    createTerminal(sessionId);
+  }
+
+  const session = sessions.get(sessionId);
+  clearTimeout(session.timeout);   // Stop the Reaper
+  session.timeout = null;
+  
+  session.ws = ws;
+  
+  // We only attach WS message listener here, PTY onData is attached in createTerminal
+  ws.on('message', (msg) => {
+    const data = msg.toString();
+    if (data.startsWith(CMD_PREFIX)) {
+      try {
+        const cmd = JSON.parse(data.slice(CMD_PREFIX.length));
+        if (cmd.type === 'ACTION' && typeof cmd.command === 'string') {
+          session.pty.write(`${cmd.command}\r`);
+        } else if (cmd.type === 'RESIZE') {
+          session.pty.resize(cmd.cols, cmd.rows);
+        } else if (cmd.type === 'READY') {
+          if (session.history && session.history.length > 0) {
+            ws.send('\x1b[2J\x1b[3J\x1b[H');
+            session.history.forEach(chunk => {
+              let rawToFrontend = chunk.replace(/\x1b\]999;([^\x07]+)\x07/g, '');
+              ws.send(rawToFrontend);
+            });
+          }
+          getSystemExecutables().then(execs => {
+            if (ws.readyState === 1) ws.send(META({ type: 'EXECUTABLES', payload: execs }));
+          });
+        }
+      } catch (_) { /* Malformed JSON: ignore */ }
+    } else {
+      session.pty.write(data); // Raw keystroke
+    }
+  });
+  
+  // Attach reaper to connection
   ws.on('close', () => {
     // Prevent race condition: do not start reaper if a new websocket took over
     if (session.ws !== ws) return;
     
     session.timeout = setTimeout(() => {
-      killPty(ptyProcess, platform);
+      killPty(session.pty, platform);
       setTimeout(() => {
-        try { killPty(ptyProcess, platform, true); } catch (_) {}
+        try { killPty(session.pty, platform, true); } catch (_) {}
         sessions.delete(sessionId);
       }, 2000);
     }, 3000);

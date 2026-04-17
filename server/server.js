@@ -9,7 +9,7 @@ import fs from 'fs';
 import os from 'os';
 import open from 'open';
 import { fileURLToPath } from 'url';
-import { handleConnection } from './ptyManager.js';
+import { handleConnection, getAvailableShells, createTerminal } from './ptyManager.js';
 import { initLlama } from './llmService.js';
 
 const app = express();
@@ -22,12 +22,27 @@ const ROOT = (process.env.HOME || process.env.USERPROFILE || process.cwd());
 // --- Static Files (Frontend Build) ---
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.json());
 
 // --- Auth Middleware (For all /api routes) ---
 function requireToken(req, res, next) {
   if (req.query.token !== TOKEN) return res.status(401).json({ error: 'Unauthorized' });
   next();
 }
+
+// --- Terminal API ---
+app.get('/api/shells', requireToken, (req, res) => {
+  const shells = getAvailableShells();
+  res.json({ shells });
+});
+
+app.post('/api/terminals', requireToken, (req, res) => {
+  const { sessionId, shell } = req.body;
+  if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+  
+  createTerminal(sessionId, { shell });
+  res.json({ success: true, sessionId });
+});
 
 // --- File Manager API ---
 app.get('/api/files', requireToken, (req, res) => {
