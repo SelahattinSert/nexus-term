@@ -11,6 +11,9 @@ export const useStore = create(
       // Array of session IDs that are currently visible in the grid (max 4)
       panes: [],
       
+      // Array of pane IDs that are minimized
+      minimizedPanes: [],
+      
       // The ID of the currently focused/active terminal pane
       focusedPane: null,
 
@@ -110,11 +113,31 @@ export const useStore = create(
 
       // Remove a session from the visible grid (moves it to background)
       removePane: (id) => set((state) => {
-        const newPanes = state.panes.filter((paneId) => paneId !== id);
+        const newPanes = state.panes.filter((p) => p !== id);
+        const newMinimized = state.minimizedPanes.filter((p) => p !== id);
+        
+        // Auto-snap logic: if a pane moves into the first 4 slots, ensure it's not minimized
+        const finalMinimized = newMinimized.filter(minId => {
+            const index = newPanes.indexOf(minId);
+            return index >= 4 || index === -1; // Keep minimized only if it's floating
+        });
+
         return {
           panes: newPanes,
-          focusedPane: state.focusedPane === id ? (newPanes[0] || null) : state.focusedPane
+          minimizedPanes: finalMinimized,
+          focusedPane: state.focusedPane === id 
+            ? (newPanes[newPanes.length - 1] || null) 
+            : state.focusedPane
         };
+      }),
+
+      toggleMinimize: (id) => set((state) => {
+          const isMinimized = state.minimizedPanes.includes(id);
+          if (isMinimized) {
+              return { minimizedPanes: state.minimizedPanes.filter(p => p !== id), focusedPane: id };
+          } else {
+              return { minimizedPanes: [...state.minimizedPanes, id] };
+          }
       }),
 
       // Swap a visible pane at a specific index with another session
