@@ -49,17 +49,23 @@ export const useStore = create(
 
       // --- Session Management ---
 
-      createSession: () => set((state) => {
-        const newId = crypto.randomUUID();
+      createSession: (options = {}) => set((state) => {
+        const newId = options.id || crypto.randomUUID();
         const newSession = { id: newId, pwd: '~', gitStatus: null };
         
         // If we have less than 4 visible panes, show it immediately, else add to background
         const newPanes = state.panes.length < 4 ? [...state.panes, newId] : state.panes;
         
+        // Optional: save shell preference
+        const newPaneShells = options.shellPath 
+          ? { ...state.paneShells, [newId]: options.shellPath }
+          : state.paneShells;
+
         return {
           sessions: [...state.sessions, newSession],
           panes: newPanes,
-          focusedPane: newId // Focus the newly created session
+          focusedPane: newId, // Focus the newly created session
+          paneShells: newPaneShells
         };
       }),
 
@@ -192,7 +198,8 @@ export const useStore = create(
         theme: state.theme,
         sessions: state.sessions,
         panes: state.panes,
-        focusedPane: state.focusedPane
+        focusedPane: state.focusedPane,
+        paneShells: state.paneShells
       }),
     }
   )

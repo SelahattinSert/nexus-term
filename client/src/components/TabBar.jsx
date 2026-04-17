@@ -1,9 +1,21 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
-import { Plus, X, Sidebar } from 'lucide-react';
+import { Plus, X, Sidebar, ChevronDown } from 'lucide-react';
 
 export default function TabBar() {
   const { sessions, panes, focusedPane, setFocusedPane, createSession, removeSession, swapPane, addPane } = useStore();
+  const [availableShells, setAvailableShells] = useState([]);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('token');
+    if (!token) return;
+
+    fetch(`/api/shells?token=${token}`)
+      .then(res => res.json())
+      .then(data => setAvailableShells(data.shells || []))
+      .catch(err => console.error("Failed to fetch shells", err));
+  }, []);
 
   const handleTabClick = (session) => {
     const isVisible = panes.includes(session.id);
@@ -50,12 +62,39 @@ export default function TabBar() {
         );
       })}
       
-      <button 
-        onClick={() => createSession()}
-        className="h-full px-4 text-ctp-subtext0 hover:text-ctp-text hover:bg-ctp-mantle flex items-center justify-center"
-      >
-        <Plus size={18} />
-      </button>
+      <div className="flex relative items-center h-full">
+        <button 
+          onClick={() => createSession()}
+          className="h-full px-3 text-ctp-subtext0 hover:text-ctp-text hover:bg-ctp-mantle flex items-center justify-center"
+          title="New Terminal"
+        >
+          <Plus size={18} />
+        </button>
+        <button
+          onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+          className="h-full px-2 text-ctp-subtext0 hover:text-ctp-text hover:bg-ctp-mantle flex items-center justify-center border-l border-ctp-surface0"
+          title="Select Shell"
+        >
+          <ChevronDown size={14} />
+        </button>
+        
+        {isDropdownOpen && (
+          <div className="absolute top-full right-0 mt-1 w-48 bg-ctp-mantle border border-ctp-surface0 rounded shadow-lg z-50">
+            {availableShells.map(shell => (
+              <div 
+                key={shell.path}
+                className="px-3 py-2 text-sm text-ctp-text hover:bg-ctp-surface0 cursor-pointer"
+                onClick={() => {
+                  createSession({ shellPath: shell.path });
+                  setIsDropdownOpen(false);
+                }}
+              >
+                {shell.name}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
