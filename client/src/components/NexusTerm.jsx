@@ -110,7 +110,7 @@ export default function NexusTerm({ sessionId }) {
     // We do initialization asynchronously
     const initConnection = async () => {
       try {
-        const shellPath = useStore.getState().paneShells[sessionId];
+        const shellPath = useStore.getState().paneShells?.[sessionId];
         await fetch(`/api/terminals?token=${token}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

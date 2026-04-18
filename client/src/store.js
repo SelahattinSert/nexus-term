@@ -11,8 +11,8 @@ export const useStore = create(
       // Array of session IDs that are currently visible in the grid (max 4)
       panes: [],
       
-      // Array of pane IDs that are minimized
-      minimizedPanes: [],
+      // Shell path preferences per pane
+      paneShells: {},
       
       // The ID of the currently focused/active terminal pane
       focusedPane: null,
@@ -58,8 +58,8 @@ export const useStore = create(
         
         // Optional: save shell preference
         const newPaneShells = options.shellPath 
-          ? { ...state.paneShells, [newId]: options.shellPath }
-          : state.paneShells;
+          ? { ...(state.paneShells || {}), [newId]: options.shellPath }
+          : (state.paneShells || {});
 
         return {
           sessions: [...state.sessions, newSession],
@@ -108,7 +108,7 @@ export const useStore = create(
 
       setFocusedPane: (id) => set({ focusedPane: id }),
 
-      // Add a background session to the visible grid
+      // Add a background session to the visible grid (max 4)
       addPane: (id) => set((state) => {
         if (state.panes.includes(id) || state.panes.length >= 4) return state;
         return { 
@@ -120,30 +120,12 @@ export const useStore = create(
       // Remove a session from the visible grid (moves it to background)
       removePane: (id) => set((state) => {
         const newPanes = state.panes.filter((p) => p !== id);
-        const newMinimized = state.minimizedPanes.filter((p) => p !== id);
-        
-        // Auto-snap logic: if a pane moves into the first 4 slots, ensure it's not minimized
-        const finalMinimized = newMinimized.filter(minId => {
-            const index = newPanes.indexOf(minId);
-            return index >= 4 || index === -1; // Keep minimized only if it's floating
-        });
-
         return {
           panes: newPanes,
-          minimizedPanes: finalMinimized,
           focusedPane: state.focusedPane === id 
             ? (newPanes[newPanes.length - 1] || null) 
             : state.focusedPane
         };
-      }),
-
-      toggleMinimize: (id) => set((state) => {
-          const isMinimized = state.minimizedPanes.includes(id);
-          if (isMinimized) {
-              return { minimizedPanes: state.minimizedPanes.filter(p => p !== id), focusedPane: id };
-          } else {
-              return { minimizedPanes: [...state.minimizedPanes, id] };
-          }
       }),
 
       // Swap a visible pane at a specific index with another session
@@ -190,6 +172,7 @@ export const useStore = create(
     }),
     {
       name: 'nexus-store', // unique name
+      version: 1, // Increment when store shape changes
       storage: createJSONStorage(() => localStorage), // use localStorage to persist snippets and tabs
       partialize: (state) => ({
         snippets: state.snippets,
@@ -199,7 +182,6 @@ export const useStore = create(
         sessions: state.sessions,
         panes: state.panes,
         focusedPane: state.focusedPane,
-        paneShells: state.paneShells
       }),
     }
   )

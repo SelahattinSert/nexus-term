@@ -54,6 +54,11 @@ export function getAvailableShells() {
 }
 
 export function createTerminal(sessionId, options = {}) {
+  // If session already exists, don't recreate - return existing PTY
+  if (sessions.has(sessionId)) {
+    return sessions.get(sessionId).pty;
+  }
+
   const platform = os.platform();
   const shell = options.shell || (platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'bash'));
 
