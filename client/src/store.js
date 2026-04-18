@@ -11,6 +11,9 @@ export const useStore = create(
       // Array of session IDs that are currently visible in the grid (max 4)
       panes: [],
       
+      // Shell path preferences per pane
+      paneShells: {},
+      
       // The ID of the currently focused/active terminal pane
       focusedPane: null,
 
@@ -46,17 +49,23 @@ export const useStore = create(
 
       // --- Session Management ---
 
-      createSession: () => set((state) => {
-        const newId = crypto.randomUUID();
+      createSession: (options = {}) => set((state) => {
+        const newId = options.id || crypto.randomUUID();
         const newSession = { id: newId, pwd: '~', gitStatus: null };
         
         // If we have less than 4 visible panes, show it immediately, else add to background
         const newPanes = state.panes.length < 4 ? [...state.panes, newId] : state.panes;
         
+        // Optional: save shell preference
+        const newPaneShells = options.shellPath 
+          ? { ...(state.paneShells || {}), [newId]: options.shellPath }
+          : (state.paneShells || {});
+
         return {
           sessions: [...state.sessions, newSession],
           panes: newPanes,
-          focusedPane: newId // Focus the newly created session
+          focusedPane: newId, // Focus the newly created session
+          paneShells: newPaneShells
         };
       }),
 
@@ -99,7 +108,7 @@ export const useStore = create(
 
       setFocusedPane: (id) => set({ focusedPane: id }),
 
-      // Add a background session to the visible grid
+      // Add a background session to the visible grid (max 4)
       addPane: (id) => set((state) => {
         if (state.panes.includes(id) || state.panes.length >= 4) return state;
         return { 
@@ -110,10 +119,12 @@ export const useStore = create(
 
       // Remove a session from the visible grid (moves it to background)
       removePane: (id) => set((state) => {
-        const newPanes = state.panes.filter((paneId) => paneId !== id);
+        const newPanes = state.panes.filter((p) => p !== id);
         return {
           panes: newPanes,
-          focusedPane: state.focusedPane === id ? (newPanes[0] || null) : state.focusedPane
+          focusedPane: state.focusedPane === id 
+            ? (newPanes[newPanes.length - 1] || null) 
+            : state.focusedPane
         };
       }),
 
@@ -161,6 +172,7 @@ export const useStore = create(
     }),
     {
       name: 'nexus-store', // unique name
+      version: 1, // Increment when store shape changes
       storage: createJSONStorage(() => localStorage), // use localStorage to persist snippets and tabs
       partialize: (state) => ({
         snippets: state.snippets,
@@ -169,7 +181,7 @@ export const useStore = create(
         theme: state.theme,
         sessions: state.sessions,
         panes: state.panes,
-        focusedPane: state.focusedPane
+        focusedPane: state.focusedPane,
       }),
     }
   )

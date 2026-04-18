@@ -84,15 +84,13 @@ export default function NexusTerm({ sessionId }) {
     
     searchAddonRef.current = searchAddon;
     
-    // ── WEBSOCKET ────────────────────────────────────────────────
+    // ── WEBSOCKET & INIT ────────────────────────────────────────────────
     const wsUrl = `ws://127.0.0.1:4000?token=${token}&sessionId=${sessionId}`;
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
-
+    let ws = null;
     let isReady = false;
 
     const trySendReady = () => {
-      if (!isReady && ws.readyState === WebSocket.OPEN && term.cols && term.rows) {
+      if (!isReady && ws && ws.readyState === WebSocket.OPEN && term.cols && term.rows) {
         isReady = true;
         ws.send(`NEXUS_CMD:${JSON.stringify({
           type: 'RESIZE',
@@ -102,12 +100,70 @@ export default function NexusTerm({ sessionId }) {
         
         // Wait for next tick to ensure RESIZE is processed before READY
         setTimeout(() => {
-          if (ws.readyState === WebSocket.OPEN) {
+          if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(`NEXUS_CMD:${JSON.stringify({ type: 'READY' })}`);
           }
         }, 10);
       }
     };
+
+    // We do initialization asynchronously
+    const initConnection = async () => {
+      try {
+        const shellPath = useStore.getState().paneShells?.[sessionId];
+        await fetch(`/api/terminals?token=${token}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            sessionId, 
+            cols: term.cols || 80, 
+            rows: term.rows || 24, 
+            shell: shellPath 
+          })
+        });
+      } catch (err) {
+        console.error('Failed to init terminal on server:', err);
+      }
+
+      ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        trySendReady();
+      };
+
+      // ── INCOMING DATA: Protocol parsing ─────────────────────────
+      ws.onmessage = (event) => {
+        const data = typeof event.data === 'string'
+          ? event.data
+          : new TextDecoder().decode(event.data);
+
+        if (data.startsWith('NEXUS_META:')) {
+          try {
+            const meta = JSON.parse(data.slice(11));
+            const { updateSession, addError, setExecutables, setSystemStats } = useStore.getState();
+
+            if (meta.type === 'DIR_CHANGE') updateSession(sessionId, { pwd: meta.payload });
+            if (meta.type === 'GIT_STATUS') updateSession(sessionId, { gitStatus: meta.payload });
+            if (meta.type === 'ERROR') addError(sessionId, meta.rule);
+            if (meta.type === 'EXECUTABLES') setExecutables(meta.payload);
+            if (meta.type === 'SYSTEM_STATS') setSystemStats(meta.payload);
+          } catch { /* Malformed JSON: ignore */ }
+        } else {
+          term.write(data);
+        }
+      };
+
+      ws.onerror = () => term.write('\r\n\x1b[31m[NexusTerm] Connection error.\x1b[0m\r\n');
+      ws.onclose = () => term.write('\r\n\x1b[33m[NexusTerm] Connection lost.\x1b[0m\r\n');
+
+      // ── KEYBOARD: Raw keystroke, not wrapped in JSON ───────────────
+      term.onData((data) => {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
+      });
+    };
+
+    initConnection();
 
     // Fit needs to happen after a small delay to ensure container is rendered in grids
     setTimeout(() => {
@@ -124,40 +180,6 @@ export default function NexusTerm({ sessionId }) {
     if (import.meta.env.MODE === 'test') {
       window.term = term;
     }
-
-    ws.onopen = () => {
-      trySendReady();
-    };
-
-    // ── INCOMING DATA: Protocol parsing ─────────────────────────
-    ws.onmessage = (event) => {
-      const data = typeof event.data === 'string'
-        ? event.data
-        : new TextDecoder().decode(event.data);
-
-      if (data.startsWith('NEXUS_META:')) {
-        try {
-          const meta = JSON.parse(data.slice(11));
-          const { updateSession, addError, setExecutables, setSystemStats } = useStore.getState();
-
-          if (meta.type === 'DIR_CHANGE') updateSession(sessionId, { pwd: meta.payload });
-          if (meta.type === 'GIT_STATUS') updateSession(sessionId, { gitStatus: meta.payload });
-          if (meta.type === 'ERROR') addError(sessionId, meta.rule);
-          if (meta.type === 'EXECUTABLES') setExecutables(meta.payload);
-          if (meta.type === 'SYSTEM_STATS') setSystemStats(meta.payload);
-        } catch { /* Malformed JSON: ignore */ }
-      } else {
-        term.write(data);
-      }
-    };
-
-    ws.onerror = () => term.write('\r\n\x1b[31m[NexusTerm] Connection error.\x1b[0m\r\n');
-    ws.onclose = () => term.write('\r\n\x1b[33m[NexusTerm] Connection lost.\x1b[0m\r\n');
-
-    // ── KEYBOARD: Raw keystroke, not wrapped in JSON ───────────────
-    term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(data);
-    });
 
     // ── AUTOCOMPLETE: Monitor input buffer ────────────────────────
     let typingTimeout;
@@ -263,7 +285,7 @@ export default function NexusTerm({ sessionId }) {
 
     // ── ERROR ACTION LISTENER ──────────────────────────────────
     const actionListener = (e) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(`NEXUS_CMD:${JSON.stringify({
           type: 'ACTION',
           command: e.detail
@@ -272,13 +294,13 @@ export default function NexusTerm({ sessionId }) {
     };
     
     const metaActionListener = (e) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(`NEXUS_CMD:${JSON.stringify(e.detail)}`);
       }
     };
 
     const executeCommandListener = (e) => {
-      if (e.detail.sessionId === sessionId && ws.readyState === WebSocket.OPEN) {
+      if (e.detail.sessionId === sessionId && ws && ws.readyState === WebSocket.OPEN) {
         ws.send(`NEXUS_CMD:${JSON.stringify({
           type: 'ACTION',
           command: e.detail.command
