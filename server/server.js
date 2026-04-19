@@ -66,6 +66,51 @@ app.get('/api/files', requireToken, (req, res) => {
   }
 });
 
+// --- File Content API ---
+app.get('/api/file/content', requireToken, (req, res) => {
+  const requestedPath = req.query.path;
+  if (!requestedPath) return res.status(400).json({ error: 'path is required' });
+  
+  const safePath = path.resolve(requestedPath);
+  
+  // Path Traversal Protection (Case normalization for Windows)
+  const normalizedSafe = safePath.toLowerCase();
+  const normalizedRoot = ROOT.toLowerCase();
+
+  if (!normalizedSafe.startsWith(normalizedRoot)) {
+    return res.status(403).json({ error: 'Forbidden: Cannot navigate outside of root.' });
+  }
+
+  try {
+    const content = fs.readFileSync(safePath, 'utf8');
+    res.json({ content });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/file/content', requireToken, (req, res) => {
+  const requestedPath = req.body.path;
+  const content = req.body.content;
+  if (!requestedPath || content === undefined) return res.status(400).json({ error: 'path and content are required' });
+
+  const safePath = path.resolve(requestedPath);
+  
+  const normalizedSafe = safePath.toLowerCase();
+  const normalizedRoot = ROOT.toLowerCase();
+
+  if (!normalizedSafe.startsWith(normalizedRoot)) {
+    return res.status(403).json({ error: 'Forbidden: Cannot navigate outside of root.' });
+  }
+
+  try {
+    fs.writeFileSync(safePath, content, 'utf8');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- CPU/RAM Monitoring (os module, no native dependencies) ---
 let lastCpuInfo = os.cpus();
 
