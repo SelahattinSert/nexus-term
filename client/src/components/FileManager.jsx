@@ -1,15 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store';
-import { Folder, File, FolderOpen, AlertCircle } from 'lucide-react';
+import { Folder, File, FolderOpen, AlertCircle, CornerLeftUp } from 'lucide-react';
 
 export default function FileManager() {
-  const { sessions, focusedPane, isSidebarOpen, activeSidebarTab } = useStore();
+  const { sessions, focusedPane, isSidebarOpen, activeSidebarTab, createEditor } = useStore();
   const [files, setFiles] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // If focused pane is a terminal, use its pwd.
+  // If focused pane is an editor, we can try to use the pwd of the first terminal session
+  // or track a "last active terminal" so the file manager doesn't just disappear.
   const focusedSession = sessions.find(s => s.id === focusedPane);
-  const currentPwd = focusedSession ? focusedSession.pwd : null;
+  const activeTerminal = focusedSession || (sessions.length > 0 ? sessions[sessions.length - 1] : null);
+  const currentPwd = activeTerminal ? activeTerminal.pwd : null;
 
   useEffect(() => {
     if (!isSidebarOpen || !currentPwd) return;
@@ -67,16 +71,22 @@ export default function FileManager() {
   if (!isSidebarOpen || activeSidebarTab !== 'explorer') return null;
 
   const handleDoubleClick = (file) => {
-    if (!focusedSession) return;
-    
-    // Sanitize filename to prevent command injection
-    const sanitizedName = file.name.replace(/["'$`\\]/g, '');
+    if (!activeTerminal) return;
     
     if (file.isDir) {
-      window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${focusedSession.id}`, { detail: `cd "${sanitizedName}"` }));
+      const sanitizedName = file.name.replace(/["'$`\\]/g, '');
+      window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${activeTerminal.id}`, { detail: `cd "${sanitizedName}"` }));
     } else {
-      window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${focusedSession.id}`, { detail: `./"${sanitizedName}"` }));
+      const fullPath = currentPwd.endsWith('/') || currentPwd.endsWith('\\') 
+        ? `${currentPwd}${file.name}` 
+        : `${currentPwd}/${file.name}`;
+      createEditor(fullPath);
     }
+  };
+
+  const handleGoBack = () => {
+    if (!activeTerminal) return;
+    window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${activeTerminal.id}`, { detail: `cd ..` }));
   };
 
   return (
@@ -87,7 +97,7 @@ export default function FileManager() {
       </div>
       
       <div className="p-2 overflow-y-auto flex-1 scrollbar-thin">
-        {!focusedSession ? (
+        {!activeTerminal ? (
           <div className="text-[#6c7086] text-xs italic p-4 text-center">Select a terminal to view files</div>
         ) : loading ? (
           <div className="text-ctp-subtext0 text-xs p-4 text-center animate-pulse">Loading files...</div>
@@ -96,10 +106,16 @@ export default function FileManager() {
             <AlertCircle size={14} className="shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
-        ) : files.length === 0 ? (
-          <div className="text-[#6c7086] text-xs italic p-4 text-center">Directory is empty</div>
         ) : (
           <ul className="space-y-0.5">
+            <li 
+              onClick={handleGoBack}
+              className="flex items-center gap-2 px-2 py-1.5 hover:bg-ctp-surface0 rounded cursor-pointer text-ctp-text transition-colors select-none"
+              title="Go Back"
+            >
+              <CornerLeftUp size={14} className="text-ctp-blue shrink-0" />
+              <span className="truncate text-xs italic">.. (Go Back)</span>
+            </li>
             {files.map((file, idx) => (
               <li 
                 key={idx} 
@@ -115,6 +131,9 @@ export default function FileManager() {
                 <span className="truncate text-xs">{file.name}</span>
               </li>
             ))}
+            {files.length === 0 && (
+              <div className="text-[#6c7086] text-xs italic p-4 text-center">Directory is empty</div>
+            )}
           </ul>
         )}
       </div>

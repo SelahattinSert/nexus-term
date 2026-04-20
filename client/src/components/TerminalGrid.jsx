@@ -2,20 +2,33 @@ import React from 'react';
 import { useStore } from '../store';
 import NexusTerm from './NexusTerm';
 import ErrorOverlay from './ErrorOverlay';
+import FileEditor from './FileEditor';
 import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
 
-const TerminalWrapper = ({ paneId, focusedPane, setFocusedPane }) => (
-  <div 
-    onClickCapture={() => setFocusedPane(paneId)}
-    className={`w-full h-full relative border ${focusedPane === paneId ? 'border-ctp-blue z-10' : 'border-ctp-surface0'} bg-ctp-base overflow-hidden`}
-  >
-    <ErrorOverlay sessionId={paneId} />
-    {/* Terminal Container - Absolute inset-0 forces strict height constraint for xterm.js fitAddon */}
-    <div className="absolute inset-0 pl-2 pt-2">
-      <NexusTerm sessionId={paneId} />
+const PaneWrapper = ({ paneId, focusedPane, setFocusedPane }) => {
+  const { sessions, editors = [] } = useStore();
+  const isEditor = editors.some(e => e.id === paneId);
+  const isSession = sessions.some(s => s.id === paneId);
+
+  return (
+    <div 
+      onClickCapture={() => setFocusedPane(paneId)}
+      className={`w-full h-full relative border ${focusedPane === paneId ? 'border-ctp-blue z-10' : 'border-ctp-surface0'} bg-ctp-base overflow-hidden flex flex-col`}
+    >
+      <ErrorOverlay sessionId={paneId} />
+      {isSession && (
+        <div className="absolute inset-0 pl-2 pt-2">
+          <NexusTerm sessionId={paneId} />
+        </div>
+      )}
+      {isEditor && (
+        <div className="absolute inset-0">
+          <FileEditor paneId={paneId} />
+        </div>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 const CustomResizeHandle = ({ direction }) => (
   <PanelResizeHandle 
@@ -41,7 +54,7 @@ export default function TerminalGrid() {
   if (panes.length === 1) {
     return (
       <div className="w-full h-full p-1 bg-ctp-crust">
-        <TerminalWrapper paneId={panes[0]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
+        <PaneWrapper paneId={panes[0]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
       </div>
     );
   }
@@ -52,11 +65,11 @@ export default function TerminalGrid() {
       <div className="w-full h-full p-1 bg-ctp-crust">
         <PanelGroup orientation="horizontal">
           <Panel minSize={20}>
-            <TerminalWrapper paneId={panes[0]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
+            <PaneWrapper paneId={panes[0]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
           </Panel>
           <CustomResizeHandle direction="horizontal" />
           <Panel minSize={20}>
-            <TerminalWrapper paneId={panes[1]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
+            <PaneWrapper paneId={panes[1]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
           </Panel>
         </PanelGroup>
       </div>
@@ -69,17 +82,17 @@ export default function TerminalGrid() {
       <div className="w-full h-full p-1 bg-ctp-crust">
         <PanelGroup orientation="horizontal">
           <Panel minSize={20}>
-            <TerminalWrapper paneId={panes[0]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
+            <PaneWrapper paneId={panes[0]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
           </Panel>
           <CustomResizeHandle direction="horizontal" />
           <Panel minSize={20}>
             <PanelGroup orientation="vertical">
               <Panel minSize={20}>
-                <TerminalWrapper paneId={panes[1]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
+                <PaneWrapper paneId={panes[1]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
               </Panel>
               <CustomResizeHandle direction="vertical" />
               <Panel minSize={20}>
-                <TerminalWrapper paneId={panes[2]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
+                <PaneWrapper paneId={panes[2]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
               </Panel>
             </PanelGroup>
           </Panel>
@@ -95,11 +108,11 @@ export default function TerminalGrid() {
         <Panel minSize={20}>
           <PanelGroup orientation="vertical">
             <Panel minSize={20}>
-              <TerminalWrapper paneId={panes[0]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
+              <PaneWrapper paneId={panes[0]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
             </Panel>
             <CustomResizeHandle direction="vertical" />
             <Panel minSize={20}>
-              <TerminalWrapper paneId={panes[2]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
+              <PaneWrapper paneId={panes[2]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
             </Panel>
           </PanelGroup>
         </Panel>
@@ -107,11 +120,11 @@ export default function TerminalGrid() {
         <Panel minSize={20}>
           <PanelGroup orientation="vertical">
             <Panel minSize={20}>
-              <TerminalWrapper paneId={panes[1]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
+              <PaneWrapper paneId={panes[1]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
             </Panel>
             <CustomResizeHandle direction="vertical" />
             <Panel minSize={20}>
-              <TerminalWrapper paneId={panes[3]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
+              <PaneWrapper paneId={panes[3]} focusedPane={focusedPane} setFocusedPane={setFocusedPane} />
             </Panel>
           </PanelGroup>
         </Panel>

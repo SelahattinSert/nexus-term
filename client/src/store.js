@@ -47,6 +47,59 @@ export const useStore = create(
       })),
 
 
+      // --- Editor Management ---
+      createEditor: (filePath) => set((state) => {
+        const currentEditors = state.editors || [];
+        // Prevent duplicate tabs for the same file
+        const existingEditor = currentEditors.find(e => e.path === filePath);
+        if (existingEditor) {
+          return {
+            panes: state.panes.includes(existingEditor.id) ? state.panes : (state.panes.length < 4 ? [...state.panes, existingEditor.id] : state.panes),
+            focusedPane: existingEditor.id
+          };
+        }
+
+        const id = crypto.randomUUID();
+        const newEditor = { id, path: filePath, content: '', isDirty: false };
+        const newPanes = state.panes.length < 4 ? [...state.panes, id] : state.panes;
+        return {
+          editors: [...currentEditors, newEditor],
+          panes: newPanes,
+          focusedPane: id
+        };
+      }),
+      
+      removeEditor: (id) => set((state) => {
+        const currentEditors = state.editors || [];
+        const newEditors = currentEditors.filter(e => e.id !== id);
+        const newPanes = state.panes.filter(paneId => paneId !== id);
+        
+        if (newPanes.length < state.panes.length) {
+          const backgroundSessions = state.sessions.filter(s => !newPanes.includes(s.id));
+          const backgroundEditors = newEditors.filter(e => !newPanes.includes(e.id));
+          
+          if (backgroundSessions.length > 0 && newPanes.length < 4) {
+            newPanes.push(backgroundSessions[0].id);
+          } else if (backgroundEditors.length > 0 && newPanes.length < 4) {
+            newPanes.push(backgroundEditors[0].id);
+          }
+        }
+        
+        let newFocusedPane = state.focusedPane;
+        if (state.focusedPane === id) {
+          newFocusedPane = newPanes.length > 0 ? newPanes[newPanes.length - 1] : null;
+        }
+
+        return { editors: newEditors, panes: newPanes, focusedPane: newFocusedPane };
+      }),
+      
+      updateEditor: (id, updates) => set((state) => {
+        const currentEditors = state.editors || [];
+        return {
+          editors: currentEditors.map(e => e.id === id ? { ...e, ...updates } : e)
+        };
+      }),
+
       // --- Session Management ---
 
       createSession: (options = {}) => set((state) => {
@@ -180,6 +233,7 @@ export const useStore = create(
         isSidebarOpen: state.isSidebarOpen,
         theme: state.theme,
         sessions: state.sessions,
+        editors: state.editors,
         panes: state.panes,
         focusedPane: state.focusedPane,
       }),
