@@ -85,18 +85,18 @@
     --ctp-mantle: #000000;
     --ctp-crust: #000000;
     --ctp-surface0: #111111;
-    --ctp-surface1: #222222;
-    --ctp-surface2: #333333;
-    --ctp-text: #ffffff;
-    --ctp-subtext0: #cccccc;
-    --ctp-subtext1: #dddddd;
-    --ctp-blue: #3b8eea;
-    --ctp-lavender: #b4befe;
-    --ctp-green: #23d18b;
-    --ctp-yellow: #f1fa8c;
-    --ctp-peach: #ffaf68;
-    --ctp-red: #f14c4c;
-    --ctp-maroon: #d16d6a;
+    --ctp-surface1: #1a1a1a;
+    --ctp-surface2: #222222;
+    --ctp-text: #d4d4d4;
+    --ctp-subtext0: #a3a3a3;
+    --ctp-subtext1: #b0b0b0;
+    --ctp-blue: #d4d4d4;
+    --ctp-lavender: #d4d4d4;
+    --ctp-green: #d4d4d4;
+    --ctp-yellow: #d4d4d4;
+    --ctp-peach: #d4d4d4;
+    --ctp-red: #d4d4d4;
+    --ctp-maroon: #d4d4d4;
   }
 
   html, body, #root {
