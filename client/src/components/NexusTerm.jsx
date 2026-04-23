@@ -53,25 +53,30 @@ export default function NexusTerm({ sessionId }) {
     }
 
     // ── TERMINAL CREATION ──────────────────────────────────────
-    const computedStyle = getComputedStyle(document.documentElement);
-    const bg = computedStyle.getPropertyValue('--ctp-base').trim() || '#1e1e2e';
-    const fg = computedStyle.getPropertyValue('--ctp-text').trim() || '#cdd6f4';
-    const cursor = computedStyle.getPropertyValue('--ctp-red').trim() || '#f5e0dc';
-
     const term = new Terminal({
       fontFamily: '"JetBrains Mono", "Fira Code", monospace',
       fontSize: 14,
-      theme: {
+      cursorBlink: true,
+    });
+    
+    termRef.current = term;
+
+    // Wait a tick for CSS variables to be computed on initial load
+    setTimeout(() => {
+      if (!termRef.current) return;
+      const computedStyle = getComputedStyle(document.documentElement);
+      const bg = computedStyle.getPropertyValue('--ctp-base').trim() || '#1e1e2e';
+      const fg = computedStyle.getPropertyValue('--ctp-text').trim() || '#cdd6f4';
+      const cursor = computedStyle.getPropertyValue('--ctp-red').trim() || '#f5e0dc';
+
+      termRef.current.options.theme = {
         background: bg,
         foreground: fg,
         cursor: cursor,
         selectionBackground: 'rgba(255, 255, 0, 0.5)',
         selectionInactiveBackground: 'rgba(255, 255, 0, 0.3)'
-      },
-      cursorBlink: true,
-    });
-    
-    termRef.current = term;
+      };
+    }, 50);
 
     const fitAddon = new FitAddon();
     const webLinksAddon = new WebLinksAddon();
