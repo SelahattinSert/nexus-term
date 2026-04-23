@@ -62,6 +62,7 @@ export default function CommandPalette() {
   }));
 
   const themeCommands = [
+    { id: 'theme_pitch_black', name: 'Theme: Pitch Black', icon: Palette, action: () => { setTheme('theme-pitch-black'); setIsOpen(false); } },
     { id: 'theme_mocha', name: 'Theme: Catppuccin Mocha', icon: Palette, action: () => { setTheme('theme-mocha'); setIsOpen(false); } },
     { id: 'theme_macchiato', name: 'Theme: Catppuccin Macchiato', icon: Palette, action: () => { setTheme('theme-macchiato'); setIsOpen(false); } },
     { id: 'theme_frappe', name: 'Theme: Catppuccin Frappe', icon: Palette, action: () => { setTheme('theme-frappe'); setIsOpen(false); } },

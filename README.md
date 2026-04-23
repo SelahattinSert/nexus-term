@@ -9,15 +9,18 @@ Built with **React**, **Node.js**, and **xterm.js**, NexusTerm bridges the gap b
 ## ✨ Key Features
 
 *   **🌐 Browser-Native:** No desktop app installation required. Access your terminal from any modern browser.
-*   **🧩 Smart Grid Layout:** Manage multiple terminals simultaneously with split-pane views, tab swapping, and background sessions.
+*   **🧩 Smart Grid Layout & Draggable Panes:** Manage multiple terminals simultaneously with split-pane views. Fluidly resize panes with mouse dragging (`react-resizable-panels`) and swap tabs easily.
+*   **📝 Built-in Code Editor (Monaco):** Double-click files to open them in a fully featured, IDE-like Monaco editor right next to your terminal. Includes `Ctrl+S` auto-save.
 *   **🔄 Seamless Reconnection:** Your sessions persist through page refreshes and temporary network drops.
-*   **🧠 Embedded Local AI (Zero-Cloud):** Built-in Qwen2.5 1.5B LLM analyzes failed commands and provides instant, context-aware autocorrect suggestions—running 100% locally with zero data sent to the cloud.
+*   **🧠 Embedded Local AI (Zero-Cloud):** Built-in Qwen2.5 1.5B LLM analyzes failed commands and provides instant, context-aware autocorrect suggestions—running 100% locally.
 *   **🌿 Source Control (Git Panel):** VS Code-style Git sidebar. View local/remote branches, one-click checkout, and see real-time added, modified, and deleted files.
-*   **📁 File Explorer:** A collapsible sidebar that automatically syncs with the active terminal's current working directory. Double-click folders to `cd` into them, or double-click files to execute them.
+*   **📁 File Explorer:** A collapsible sidebar that automatically syncs with the active terminal's current working directory.
+*   **🎨 Theming Engine:** Personalize your terminal with multiple built-in themes including Catppuccin (Mocha, Macchiato, Frappe, Latte) and a fully monochromatic **Pitch Black** theme.
+*   **🔍 Terminal Search:** Press `Ctrl+F` for an integrated search overlay with incremental highlighting.
 *   **💻 System Monitor:** Real-time CPU and RAM usage tracker elegantly displayed in the header.
-*   **🚀 Auto-Complete:** Native-feeling tab completion suggestions based on system executables.
-*   **🛠️ Visual CLI Builder & Snippets:** Construct complex CLI commands via an intuitive UI (flags, key-value pairs, args), save them as Snippets, and execute them with a single click.
-*   **⌨️ Command Palette:** Press `Ctrl+P` (or `Cmd+P`) to quickly run saved snippets, open new sessions, or toggle the UI layout.
+*   **🛠️ Visual CLI Builder & Snippets:** Construct complex CLI commands via an intuitive UI, save them, import/export them as JSON, and execute them with a single click.
+*   **⌨️ Command Palette:** Press `Ctrl+P` (or `Cmd+P`) to quickly run saved snippets, change themes, open new sessions, or toggle the UI layout.
+*   **🔔 Toast Notifications:** Beautiful, non-intrusive notifications for system events and terminal statuses.
 
 ---
 
@@ -27,15 +30,7 @@ Built with **React**, **Node.js**, and **xterm.js**, NexusTerm bridges the gap b
 - **Backend:** Node.js (Express), WebSocket (ws), node-pty, node-llama-cpp (for Local AI)
 - **Platform Support:** Windows, macOS, Linux
 
----
 
-## 📅 Roadmap
-
-- [x] **Phase 1:** Core Engine and Secure WebSocket Communication
-- [x] **Phase 2:** Multi-Session (Tabs), Grid Layout, and State Reconnection
-- [x] **Phase 3:** Smart Terminal (Typo Correction, Error Beautifier, Embedded LLM)
-- [x] **Phase 4:** Visual Panels (File Manager, Git Status, System Monitor)
-- [x] **Phase 5:** Open Source & Community (Packaging & NPX, Command Palette, Visual CLI Builder)
 
 ---
 
