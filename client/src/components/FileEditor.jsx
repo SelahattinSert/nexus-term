@@ -92,15 +92,16 @@ export default function FileEditor({ paneId }) {
           value={editorState.content}
           onChange={handleEditorChange}
           onMount={handleEditorDidMount}
-          options={{ 
-            minimap: { enabled: false }, 
+          options={{
+            minimap: { enabled: false },
             fontSize: 14,
+            fontWeight: '550',
+            letterSpacing: -0.5,
             fontFamily: '"JetBrains Mono", "Fira Code", monospace',
             wordWrap: 'on',
             scrollBeyondLastLine: false,
             padding: { top: 8 }
-          }}
-        />
+          }}        />
       </div>
     </div>
   );

@@ -53,10 +53,15 @@ export default function NexusTerm({ sessionId }) {
     }
 
     // ── TERMINAL CREATION ──────────────────────────────────────
+    const isWindows = navigator.userAgent.includes('Windows');
     const term = new Terminal({
       fontFamily: '"JetBrains Mono", "Fira Code", monospace',
       fontSize: 14,
+      fontWeight: '550',
+      fontWeightBold: '750',
+      letterSpacing: -0.5,
       cursorBlink: true,
+      windowsMode: isWindows,
     });
     
     termRef.current = term;
@@ -264,24 +269,44 @@ export default function NexusTerm({ sessionId }) {
       divRef.current.addEventListener('contextmenu', handleContextMenu);
     }
 
-    // ── RESIZE: ResizeObserver for precise container tracking ─────────────────────────────
-    const resizeObserver = new ResizeObserver(() => {
-      try {
-        fitAddon.fit();
-        if (ws.readyState === WebSocket.OPEN) {
-          if (!isReady) {
-            trySendReady();
-          } else {
-            ws.send(`NEXUS_CMD:${JSON.stringify({
-              type: 'RESIZE',
-              cols: term.cols,
-              rows: term.rows,
-            })}`);
-          }
+    // ── RESIZE: Synchronize backend PTY size on actual terminal resize ──────────
+    let ptyResizeTimeout;
+    let lastCols = term.cols;
+    let lastRows = term.rows;
+    term.onResize(({ cols, rows }) => {
+      if (cols === lastCols && rows === lastRows) return;
+      lastCols = cols;
+      lastRows = rows;
+
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        if (!isReady) {
+          trySendReady();
+        } else {
+          clearTimeout(ptyResizeTimeout);
+          ptyResizeTimeout = setTimeout(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(`NEXUS_CMD:${JSON.stringify({
+                type: 'RESIZE',
+                cols,
+                rows,
+              })}`);
+            }
+          }, 300); // 300ms debounce to prevent ConPTY redraw spam
         }
-      } catch {
-        // fitAddon might throw if the element is not fully rendered
       }
+    });
+
+    // ── RESIZE: ResizeObserver for precise container tracking ─────────────────────────────
+    let fitTimeout;
+    const resizeObserver = new ResizeObserver(() => {
+      clearTimeout(fitTimeout);
+      fitTimeout = setTimeout(() => {
+        try {
+          fitAddon.fit();
+        } catch {
+          // fitAddon might throw if the element is not fully rendered
+        }
+      }, 100);
     });
 
     if (divRef.current) {
