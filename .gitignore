@@ -39,3 +39,7 @@ client/dist
 server/public
 server/models/
 *.gguf
+
+# Worktrees
+.worktrees/
+
