@@ -107,5 +107,7 @@
     background-color: var(--ctp-base);
     color: var(--ctp-text);
     overflow: hidden;
+    font-weight: 550;
+    letter-spacing: -0.02em;
   }
 }
