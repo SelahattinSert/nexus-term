@@ -354,7 +354,7 @@ export default function NexusTerm({ sessionId }) {
   }, [sessionId]);
 
   return (
-    <div className="relative w-full h-full">
+    <div className="relative w-full h-full overflow-hidden">
       {isSearchOpen && (
         <div className="absolute top-2 right-6 z-50 bg-ctp-mantle border border-ctp-surface1 rounded-lg shadow-xl p-2 flex items-center gap-2 text-sm animate-in fade-in slide-in-from-top-2">
           <Search size={14} className="text-ctp-subtext0" />
@@ -407,7 +407,7 @@ export default function NexusTerm({ sessionId }) {
           <div className="text-[10px] text-[#6c7086] mt-1">Press Tab to complete natively</div>
         </div>
       )}
-      <div ref={divRef} className="w-full h-full bg-ctp-base" />
+      <div ref={divRef} className="w-full h-full bg-ctp-base overflow-hidden" />
     </div>
   );
 }

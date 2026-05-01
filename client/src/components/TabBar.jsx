@@ -75,7 +75,15 @@ export default function TabBar() {
               <button 
                 onClick={(e) => { 
                   e.stopPropagation(); 
-                  tab.type === 'terminal' ? removeSession(tab.id) : removeEditor(tab.id); 
+                  if (tab.type === 'terminal') {
+                    removeSession(tab.id);
+                  } else {
+                    if (tab.isDirty) {
+                      const confirmClose = window.confirm("You have unsaved changes. Are you sure you want to close this file without saving?");
+                      if (!confirmClose) return;
+                    }
+                    removeEditor(tab.id);
+                  }
                 }}
                 className="p-1 hover:bg-ctp-surface0 rounded opacity-60 hover:opacity-100"
               >
