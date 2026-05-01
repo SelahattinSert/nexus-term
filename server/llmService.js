@@ -13,7 +13,9 @@ let model = null;
 let context = null;
 let session = null;
 let isInitializing = false;
-let isProcessing = false;
+
+// Robust Promise Queue for LLM analysis requests
+let requestQueue = Promise.resolve();
 
 export function setSessionForTest(mockSession) {
   session = mockSession;
@@ -45,11 +47,9 @@ export async function initLlama() {
 }
 
 /**
- * Sends the failed command details to the embedded local LLM for analysis.
- * @param {Object} payload - The structured error payload from the shell hook.
- * @returns {Promise<string>} - The suggested fix or command.
+ * Internal logic for analyzing command error.
  */
-export async function analyzeCommandError(payload) {
+async function processCommandError(payload) {
   if (!session) {
     await initLlama();
   }
@@ -58,22 +58,14 @@ export async function analyzeCommandError(payload) {
     throw new Error('Local LLM engine is not available.');
   }
 
-  // Simple concurrency management: wait if another request is being processed
-  while (isProcessing) {
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  
-  isProcessing = true;
+  // Clear previous history to ensure independent analysis and avoid context pollution
+  session.setChatHistory([]);
 
-  try {
-    // Clear previous history to ensure independent analysis and avoid context pollution
-    session.setChatHistory([]);
+  const hintText = (payload.closestCommands && payload.closestCommands.length > 0)
+    ? `Hint: The user likely misspelled the first word. Here are the 10 most similar valid commands installed on this system: [${payload.closestCommands.join(', ')}]. Choose the correct one from this list to replace the first word.\n` 
+    : '';
 
-    const hintText = (payload.closestCommands && payload.closestCommands.length > 0)
-      ? `Hint: The user likely misspelled the first word. Here are the 10 most similar valid commands installed on this system: [${payload.closestCommands.join(', ')}]. Choose the correct one from this list to replace the first word.\n` 
-      : '';
-
-    const prompt = `You are a command-line autocorrect AI.
+  const prompt = `You are a command-line autocorrect AI.
 Your ONLY task is to fix typos in the provided shell command.
 
 Rules:
@@ -85,18 +77,28 @@ ${hintText}
 Broken command: ${payload.cmd}
 Corrected command:`;
 
-    const answer = await session.prompt(prompt, {
-      maxTokens: 50,
-      temperature: 0.1
-    });
+  const answer = await session.prompt(prompt, {
+    maxTokens: 50,
+    temperature: 0.1
+  });
 
-    // Clean the output: remove markdown backticks, quotes, and whitespace
-    let cleaned = answer.replace(/[`'"]/g, '').trim();
-    
-    if (cleaned.toUpperCase() === 'FAILED') return null;
+  // Clean the output: remove markdown backticks, quotes, and whitespace
+  let cleaned = answer.replace(/[`'"]/g, '').trim();
+  
+  if (cleaned.toUpperCase() === 'FAILED') return null;
 
-    return cleaned;
-  } finally {
-    isProcessing = false;
-  }
+  return cleaned;
+}
+
+/**
+ * Sends the failed command details to the embedded local LLM for analysis.
+ * Uses a promise chain queue to prevent concurrent LLM executions.
+ * @param {Object} payload - The structured error payload from the shell hook.
+ * @returns {Promise<string>} - The suggested fix or command.
+ */
+export function analyzeCommandError(payload) {
+  const task = requestQueue.then(() => processCommandError(payload));
+  // Ensure the queue continues even if a task fails
+  requestQueue = task.catch(() => {});
+  return task;
 }

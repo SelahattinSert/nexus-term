@@ -7,11 +7,15 @@ import ActivityBar from './components/ActivityBar';
 import SnippetsPanel from './components/SnippetsPanel';
 import CommandPalette from './components/CommandPalette';
 import ErrorBoundary from './components/ErrorBoundary';
+import SystemMonitor from './components/SystemMonitor';
 import { useStore } from './store';
 import { Toaster } from 'sonner';
 
 function App() {
-  const { sessions, focusedPane, createSession, systemStats, theme } = useStore();
+  const sessions = useStore(state => state.sessions);
+  const focusedPane = useStore(state => state.focusedPane);
+  const createSession = useStore(state => state.createSession);
+  const theme = useStore(state => state.theme);
 
   useEffect(() => {
     // Apply theme to document element
@@ -47,16 +51,7 @@ function App() {
             <span>No terminal focused</span>
           )}
           <div className="ml-auto flex gap-4 text-[#6c7086]">
-            {systemStats && (
-              <>
-                <span title={`RAM: ${Math.round(systemStats.usedMem / 1073741824 * 10) / 10}GB / ${Math.round(systemStats.totalMem / 1073741824 * 10) / 10}GB`}>
-                  🧠 {systemStats.ram}%
-                </span>
-                <span>
-                  💻 {systemStats.cpu}%
-                </span>
-              </>
-            )}
+            <SystemMonitor />
           </div>
         </header>
 
