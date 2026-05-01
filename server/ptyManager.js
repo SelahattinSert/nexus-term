@@ -89,37 +89,41 @@ export function createTerminal(sessionId, options = {}) {
     session.oscBuffer += data;
     
     // Process OSC 7 (Directory Change)
-    let match7;
-    const osc7Regex = /\x1b\]7;file:\/\/[^/]*(\/[^\x07]*)\x07/g;
-    while ((match7 = osc7Regex.exec(session.oscBuffer)) !== null) {
-      let newPwd = decodeURIComponent(match7[1]);
-      if (os.platform() === 'win32' && newPwd.match(/^\/[a-zA-Z]:\//)) {
-        newPwd = newPwd.slice(1);
+    if (session.oscBuffer.includes('\x1b]7;')) {
+      let match7;
+      const osc7Regex = /\x1b\]7;file:\/\/[^/]*(\/[^\x07]*)\x07/g;
+      while ((match7 = osc7Regex.exec(session.oscBuffer)) !== null) {
+        let newPwd = decodeURIComponent(match7[1]);
+        if (os.platform() === 'win32' && newPwd.match(/^\/[a-zA-Z]:\//)) {
+          newPwd = newPwd.slice(1);
+        }
+        session.currentPwd = newPwd;
+        if (session.ws && session.ws.readyState === 1) {
+          session.ws.send(META({ type: 'DIR_CHANGE', payload: newPwd }));
+          getGitStatus(newPwd, (gitInfo) => {
+            if (session.ws && session.ws.readyState === 1) session.ws.send(META({ type: 'GIT_STATUS', payload: gitInfo }));
+          });
+        }
       }
-      session.currentPwd = newPwd;
-      if (session.ws && session.ws.readyState === 1) {
-        session.ws.send(META({ type: 'DIR_CHANGE', payload: newPwd }));
-        getGitStatus(newPwd, (gitInfo) => {
-          if (session.ws && session.ws.readyState === 1) session.ws.send(META({ type: 'GIT_STATUS', payload: gitInfo }));
-        });
-      }
+      session.oscBuffer = session.oscBuffer.replace(osc7Regex, '');
     }
-    session.oscBuffer = session.oscBuffer.replace(osc7Regex, '');
 
     // Process OSC 999 (Structured Events from Shell Hook)
-    let match999;
-    const osc999Regex = /\x1b\]999;([^\x07]+)\x07/g;
-    while ((match999 = osc999Regex.exec(session.oscBuffer)) !== null) {
-      try {
-        const payload = JSON.parse(match999[1]);
-        if (payload.type === 'COMMAND_FAILED' && session.ws && session.ws.readyState === 1) {
-          handleCommandFailed(session, payload);
+    if (session.oscBuffer.includes('\x1b]999;')) {
+      let match999;
+      const osc999Regex = /\x1b\]999;([^\x07]+)\x07/g;
+      while ((match999 = osc999Regex.exec(session.oscBuffer)) !== null) {
+        try {
+          const payload = JSON.parse(match999[1]);
+          if (payload.type === 'COMMAND_FAILED' && session.ws && session.ws.readyState === 1) {
+            handleCommandFailed(session, payload);
+          }
+        } catch (e) {
+          console.error('Failed to parse OSC 999 payload', e);
         }
-      } catch (e) {
-        console.error('Failed to parse OSC 999 payload', e);
       }
+      session.oscBuffer = session.oscBuffer.replace(osc999Regex, '');
     }
-    session.oscBuffer = session.oscBuffer.replace(osc999Regex, '');
 
     // Prevent buffer memory leak
     if (session.oscBuffer.length > 4000) {
@@ -134,7 +138,7 @@ export function createTerminal(sessionId, options = {}) {
     }
     
     // Clean OSC 999 from the raw data sent to xterm.js (so user doesn't see JSON)
-    let rawToFrontend = data.replace(/\x1b\]999;([^\x07]+)\x07/g, '');
+    let rawToFrontend = data.includes('\x1b]999;') ? data.replace(/\x1b\]999;([^\x07]+)\x07/g, '') : data;
     
     if (session.ws && session.ws.readyState === 1) {
       session.ws.send(rawToFrontend); // RAW terminal output
@@ -163,6 +167,8 @@ export function handleConnection(ws, req, { getCpuUsage }) {
   session.timeout = null;
   
   session.ws = ws;
+  const connectionId = crypto.randomUUID();
+  session.currentConnectionId = connectionId;
   
   // We only attach WS message listener here, PTY onData is attached in createTerminal
   ws.on('message', (msg) => {
@@ -178,7 +184,7 @@ export function handleConnection(ws, req, { getCpuUsage }) {
           if (session.history && session.history.length > 0) {
             ws.send('\x1b[2J\x1b[3J\x1b[H');
             session.history.forEach(chunk => {
-              let rawToFrontend = chunk.replace(/\x1b\]999;([^\x07]+)\x07/g, '');
+              let rawToFrontend = chunk.includes('\x1b]999;') ? chunk.replace(/\x1b\]999;([^\x07]+)\x07/g, '') : chunk;
               ws.send(rawToFrontend);
             });
           }
@@ -194,10 +200,13 @@ export function handleConnection(ws, req, { getCpuUsage }) {
   
   // Attach reaper to connection
   ws.on('close', () => {
-    // Prevent race condition: do not start reaper if a new websocket took over
-    if (session.ws !== ws) return;
+    // Prevent race condition: Ensure this is the exact connection that disconnected
+    if (session.currentConnectionId !== connectionId) return;
     
     session.timeout = setTimeout(() => {
+      // Check one more time before killing to be absolutely sure no new connection arrived
+      if (session.currentConnectionId !== connectionId) return;
+      
       killPty(session.pty, platform);
       setTimeout(() => {
         try { killPty(session.pty, platform, true); } catch (_) {}

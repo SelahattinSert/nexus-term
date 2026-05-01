@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import { Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useStore } from '../store';
+import { useTerminalWebsocket } from '../hooks/useTerminalWebsocket';
+import { Trie } from '../utils/Trie';
 import '@xterm/xterm/css/xterm.css';
 
 export default function NexusTerm({ sessionId }) {
@@ -14,9 +16,13 @@ export default function NexusTerm({ sessionId }) {
   const { theme } = useStore();
   const termRef = useRef(null);
   const searchAddonRef = useRef(null);
+  const fitAddonRef = useRef(null);
+  const isReadyRef = useRef(false);
   
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
+
+  const executableTrie = useMemo(() => new Trie(), []);
 
   useEffect(() => {
     suggestionsRef.current = suggestions;
@@ -26,8 +32,6 @@ export default function NexusTerm({ sessionId }) {
   useEffect(() => {
     if (!termRef.current) return;
     
-    // We can read the CSS variables from the document element since we set it in App.jsx
-    // Wait for the next tick to ensure CSS is applied
     setTimeout(() => {
       const computedStyle = getComputedStyle(document.documentElement);
       const bg = computedStyle.getPropertyValue('--ctp-base').trim() || '#1e1e2e';
@@ -38,21 +42,28 @@ export default function NexusTerm({ sessionId }) {
         background: bg,
         foreground: fg,
         cursor: cursor,
-        selectionBackground: 'rgba(255, 255, 0, 0.5)', // Bright yellow, very visible
-        selectionInactiveBackground: 'rgba(255, 255, 0, 0.3)' // Still bright yellow when unfocused
+        selectionBackground: 'rgba(255, 255, 0, 0.5)',
+        selectionInactiveBackground: 'rgba(255, 255, 0, 0.3)'
       };
     }, 50);
   }, [theme]);
 
+  // Listen to executables changes and rebuild Trie
   useEffect(() => {
-    // ── TOKEN: Secure retrieval from URL ──────────────────────────────
-    const token = new URLSearchParams(window.location.search).get('token');
-    if (!token) {
-      console.error('NexusTerm: Token not found. Make sure you opened the correct URL.');
-      return;
-    }
+    return useStore.subscribe(
+      (state) => state.executables,
+      (executables) => {
+        if (executables && executables.length > 0) {
+          executableTrie.buildFromList(executables);
+        }
+      }
+    );
+  }, [executableTrie]);
 
-    // ── TERMINAL CREATION ──────────────────────────────────────
+  // Use the custom hook for WebSocket and connection logic
+  const wsRef = useTerminalWebsocket(sessionId, termRef, fitAddonRef, isReadyRef);
+
+  useEffect(() => {
     const isWindows = navigator.userAgent.includes('Windows');
     const term = new Terminal({
       fontFamily: '"JetBrains Mono", "Fira Code", monospace',
@@ -66,18 +77,13 @@ export default function NexusTerm({ sessionId }) {
     
     termRef.current = term;
 
-    // Wait a tick for CSS variables to be computed on initial load
     setTimeout(() => {
       if (!termRef.current) return;
       const computedStyle = getComputedStyle(document.documentElement);
-      const bg = computedStyle.getPropertyValue('--ctp-base').trim() || '#1e1e2e';
-      const fg = computedStyle.getPropertyValue('--ctp-text').trim() || '#cdd6f4';
-      const cursor = computedStyle.getPropertyValue('--ctp-red').trim() || '#f5e0dc';
-
       termRef.current.options.theme = {
-        background: bg,
-        foreground: fg,
-        cursor: cursor,
+        background: computedStyle.getPropertyValue('--ctp-base').trim() || '#1e1e2e',
+        foreground: computedStyle.getPropertyValue('--ctp-text').trim() || '#cdd6f4',
+        cursor: computedStyle.getPropertyValue('--ctp-red').trim() || '#f5e0dc',
         selectionBackground: 'rgba(255, 255, 0, 0.5)',
         selectionInactiveBackground: 'rgba(255, 255, 0, 0.3)'
       };
@@ -93,105 +99,13 @@ export default function NexusTerm({ sessionId }) {
     term.open(divRef.current);
     
     searchAddonRef.current = searchAddon;
-    
-    // ── WEBSOCKET & INIT ────────────────────────────────────────────────
-    const wsUrl = `ws://127.0.0.1:4000?token=${token}&sessionId=${sessionId}`;
-    let ws = null;
-    let isReady = false;
+    fitAddonRef.current = fitAddon;
 
-    const trySendReady = () => {
-      if (!isReady && ws && ws.readyState === WebSocket.OPEN && term.cols && term.rows) {
-        isReady = true;
-        ws.send(`NEXUS_CMD:${JSON.stringify({
-          type: 'RESIZE',
-          cols: term.cols,
-          rows: term.rows,
-        })}`);
-        
-        // Wait for next tick to ensure RESIZE is processed before READY
-        setTimeout(() => {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(`NEXUS_CMD:${JSON.stringify({ type: 'READY' })}`);
-          }
-        }, 10);
-      }
-    };
-
-    // We do initialization asynchronously
-    const initConnection = async () => {
-      try {
-        const shellPath = useStore.getState().paneShells?.[sessionId];
-        await fetch(`/api/terminals?token=${token}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            sessionId, 
-            cols: term.cols || 80, 
-            rows: term.rows || 24, 
-            shell: shellPath 
-          })
-        });
-      } catch (err) {
-        console.error('Failed to init terminal on server:', err);
-      }
-
-      ws = new WebSocket(wsUrl);
-      ws.binaryType = 'arraybuffer';
-
-      ws.onopen = () => {
-        trySendReady();
-      };
-
-      // ── INCOMING DATA: Protocol parsing ─────────────────────────
-      ws.onmessage = (event) => {
-        const data = typeof event.data === 'string'
-          ? event.data
-          : new TextDecoder().decode(event.data);
-
-        if (data.startsWith('NEXUS_META:')) {
-          try {
-            const meta = JSON.parse(data.slice(11));
-            const { updateSession, addError, setExecutables, setSystemStats } = useStore.getState();
-
-            if (meta.type === 'DIR_CHANGE') updateSession(sessionId, { pwd: meta.payload });
-            if (meta.type === 'GIT_STATUS') updateSession(sessionId, { gitStatus: meta.payload });
-            if (meta.type === 'ERROR') addError(sessionId, meta.rule);
-            if (meta.type === 'EXECUTABLES') setExecutables(meta.payload);
-            if (meta.type === 'SYSTEM_STATS') setSystemStats(meta.payload);
-          } catch { /* Malformed JSON: ignore */ }
-        } else {
-          term.write(data);
-        }
-      };
-
-      ws.onerror = () => term.write('\r\n\x1b[31m[NexusTerm] Connection error.\x1b[0m\r\n');
-      ws.onclose = () => term.write('\r\n\x1b[33m[NexusTerm] Connection lost.\x1b[0m\r\n');
-
-      // ── KEYBOARD: Raw keystroke, not wrapped in JSON ───────────────
-      term.onData((data) => {
-        if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
-      });
-    };
-
-    initConnection();
-
-    // Fit needs to happen after a small delay to ensure container is rendered in grids
-    setTimeout(() => {
-      try {
-        fitAddon.fit();
-        term.focus();
-        trySendReady();
-      } catch {
-        /* Ignore fit error */
-      }
-    }, 50);
-
-    // Expose buffer API for E2E tests (only in test environment)
     if (import.meta.env.MODE === 'test') {
       window.term = term;
     }
 
-    // ── AUTOCOMPLETE: Monitor input buffer ────────────────────────
+    // ── AUTOCOMPLETE: Monitor input buffer using Trie ────────────────────────
     let typingTimeout;
     term.onKey(({ domEvent }) => {
       if (domEvent.key === 'Enter' || domEvent.ctrlKey || domEvent.altKey || domEvent.metaKey) {
@@ -204,18 +118,13 @@ export default function NexusTerm({ sessionId }) {
         const buffer = term.buffer.active;
         const lineStr = buffer.getLine(buffer.cursorY + buffer.baseY)?.translateToString(true) || '';
         
-        // We only care about what's typed before the cursor
         const textBeforeCursor = lineStr.substring(0, buffer.cursorX).trimStart();
-        
-        // Split by spaces to get the last word being typed
         const words = textBeforeCursor.trim().split(/\s+/);
         const currentWord = words[words.length - 1];
         
         if (currentWord && currentWord.length > 1) {
-          const executables = useStore.getState().executables || [];
-          const matches = executables
-            .filter(e => e.startsWith(currentWord) && e !== currentWord)
-            .slice(0, 5); // limit to 5 suggestions
+          // Use O(M) Trie search instead of O(N * M) Array filter
+          const matches = executableTrie.searchPrefix(currentWord, 6).filter(e => e !== currentWord).slice(0, 5);
           setSuggestions(matches);
         } else {
           setSuggestions([]);
@@ -223,29 +132,23 @@ export default function NexusTerm({ sessionId }) {
       }, 100);
     });
 
-    // ── CLIPBOARD & HOTKEYS: Copy/Paste, Search support ────────────────────────────
+    // ── CLIPBOARD & HOTKEYS ────────────────────────────
     term.attachCustomKeyEventHandler((e) => {
-      // Ctrl+F: Open search
       if ((e.ctrlKey || e.metaKey) && e.code === 'KeyF' && e.type === 'keydown') {
         setIsSearchOpen(true);
-        return false; // Prevent browser default search
+        return false;
       }
 
-      // Ctrl+C: Copy if text is selected, otherwise allow SIGINT
       if (e.ctrlKey && e.code === 'KeyC' && e.type === 'keydown') {
         const selection = term.getSelection();
         if (selection) {
           navigator.clipboard.writeText(selection);
           term.clearSelection();
-          return false; // Prevent sending SIGINT
+          return false;
         }
       }
       
-      // Tab Autocomplete insertion
       if (e.code === 'Tab' && e.type === 'keydown' && suggestionsRef.current.length > 0) {
-        // If there's an active suggestion, we could insert it. 
-        // For simplicity, we just let the shell's native tab completion handle it
-        // but we clear our visual suggestions.
         setSuggestions([]);
       }
       
@@ -260,7 +163,7 @@ export default function NexusTerm({ sessionId }) {
         term.clearSelection();
       } else {
         navigator.clipboard.readText().then((text) => {
-          if (ws.readyState === WebSocket.OPEN) ws.send(text);
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) wsRef.current.send(text);
         });
       }
     };
@@ -269,7 +172,7 @@ export default function NexusTerm({ sessionId }) {
       divRef.current.addEventListener('contextmenu', handleContextMenu);
     }
 
-    // ── RESIZE: Synchronize backend PTY size on actual terminal resize ──────────
+    // ── RESIZE OBSERVERS ─────────────────────────────
     let ptyResizeTimeout;
     let lastCols = term.cols;
     let lastRows = term.rows;
@@ -278,34 +181,29 @@ export default function NexusTerm({ sessionId }) {
       lastCols = cols;
       lastRows = rows;
 
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        if (!isReady) {
-          trySendReady();
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        if (!isReadyRef.current) {
+          // handled by trySendReady inside hook
         } else {
           clearTimeout(ptyResizeTimeout);
           ptyResizeTimeout = setTimeout(() => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(`NEXUS_CMD:${JSON.stringify({
+            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+              wsRef.current.send(`NEXUS_CMD:${JSON.stringify({
                 type: 'RESIZE',
                 cols,
                 rows,
               })}`);
             }
-          }, 300); // 300ms debounce to prevent ConPTY redraw spam
+          }, 300);
         }
       }
     });
 
-    // ── RESIZE: ResizeObserver for precise container tracking ─────────────────────────────
     let fitTimeout;
     const resizeObserver = new ResizeObserver(() => {
       clearTimeout(fitTimeout);
       fitTimeout = setTimeout(() => {
-        try {
-          fitAddon.fit();
-        } catch {
-          // fitAddon might throw if the element is not fully rendered
-        }
+        try { fitAddon.fit(); } catch (e) { console.debug('Ignored fit error', e); }
       }, 100);
     });
 
@@ -315,8 +213,8 @@ export default function NexusTerm({ sessionId }) {
 
     // ── ERROR ACTION LISTENER ──────────────────────────────────
     const actionListener = (e) => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(`NEXUS_CMD:${JSON.stringify({
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(`NEXUS_CMD:${JSON.stringify({
           type: 'ACTION',
           command: e.detail
         })}`);
@@ -324,14 +222,14 @@ export default function NexusTerm({ sessionId }) {
     };
     
     const metaActionListener = (e) => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(`NEXUS_CMD:${JSON.stringify(e.detail)}`);
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(`NEXUS_CMD:${JSON.stringify(e.detail)}`);
       }
     };
 
     const executeCommandListener = (e) => {
-      if (e.detail.sessionId === sessionId && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(`NEXUS_CMD:${JSON.stringify({
+      if (e.detail.sessionId === sessionId && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(`NEXUS_CMD:${JSON.stringify({
           type: 'ACTION',
           command: e.detail.command
         })}`);
@@ -342,16 +240,15 @@ export default function NexusTerm({ sessionId }) {
     window.addEventListener(`NEXUS_META_ACTION_${sessionId}`, metaActionListener);
     window.addEventListener('nexus-execute-command', executeCommandListener);
 
-    // ── CLEANUP: Memory leak prevention ──────────────────────────────
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener(`NEXUS_ACTION_${sessionId}`, actionListener);
       window.removeEventListener(`NEXUS_META_ACTION_${sessionId}`, metaActionListener);
+      window.removeEventListener('nexus-execute-command', executeCommandListener);
       clearTimeout(typingTimeout);
-      ws.close();
       term.dispose();
     };
-  }, [sessionId]);
+  }, [sessionId, theme, executableTrie, wsRef]);
 
   return (
     <div className="relative w-full h-full overflow-hidden">
@@ -411,4 +308,3 @@ export default function NexusTerm({ sessionId }) {
     </div>
   );
 }
-
