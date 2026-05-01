@@ -17,7 +17,7 @@ const PaneWrapper = ({ paneId, focusedPane, setFocusedPane }) => {
     >
       <ErrorOverlay sessionId={paneId} />
       {isSession && (
-        <div className="absolute inset-0 pl-2 pt-2">
+        <div className="absolute inset-0 p-2 overflow-hidden">
           <NexusTerm sessionId={paneId} />
         </div>
       )}

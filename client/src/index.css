@@ -110,4 +110,12 @@
     font-weight: 550;
     letter-spacing: -0.02em;
   }
+
+  /* Prevent xterm selection shifting and overflow issues */
+  .xterm .xterm-viewport {
+    overflow-y: auto !important;
+  }
+  .xterm-screen {
+    overflow: hidden;
+  }
 }

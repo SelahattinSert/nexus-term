@@ -233,7 +233,7 @@ export const useStore = create(
         isSidebarOpen: state.isSidebarOpen,
         theme: state.theme,
         sessions: state.sessions,
-        editors: state.editors,
+        editors: state.editors?.map(e => ({ id: e.id, path: e.path, isDirty: e.isDirty, content: '' })) || [],
         panes: state.panes,
         focusedPane: state.focusedPane,
       }),
