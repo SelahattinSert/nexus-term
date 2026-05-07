@@ -3,7 +3,6 @@ import { describe, it, mock, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { EventEmitter } from 'events';
 import { handleConnection } from '../ptyManager.js';
-import * as llmService from '../llmService.js';
 
 describe('ptyManager - handleConnection', () => {
   let ptyProcessMock;
@@ -21,16 +20,10 @@ describe('ptyManager - handleConnection', () => {
     };
     
     pty.spawn = () => ptyProcessMock;
-
-    llmService.setSessionForTest({
-      setChatHistory: () => {},
-      prompt: async () => 'fixed cmd'
-    });
   });
 
   afterEach(() => {
     pty.spawn = originalSpawn;
-    llmService.setSessionForTest(null);
   });
 
   it('should close WebSocket connection if sessionId is missing', () => {

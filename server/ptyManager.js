@@ -6,7 +6,6 @@ import crypto from 'crypto';
 import levenshtein from 'fast-levenshtein';
 import { getSystemExecutables } from './pathScanner.js';
 import { getGitStatus, fetchAndGetGitStatus } from './gitMonitor.js';
-import { analyzeCommandError } from './llmService.js';
 
 // ========================
 // PROTOCOL CONSTANTS
@@ -218,75 +217,17 @@ export function handleConnection(ws, req, { getCpuUsage }) {
 
 async function handleCommandFailed(session, payload) {
   const { ws } = session;
-  const executables = await getSystemExecutables();
   const fullCmd = payload.cmd.trim();
-  const hasArguments = fullCmd.includes(' ');
   const extractedCommand = fullCmd.split(' ')[0].trim();
   
   if (!extractedCommand) return;
 
-  const isCommandValid = executables.includes(extractedCommand);
-
-  let bestMatch = null;
-  let bestDist = Infinity;
-  let closestCommands = [];
-  const popularCommands = ['git', 'npm', 'docker', 'cd', 'ls', 'yarn', 'pnpm', 'npx', 'node', 'code', 'python', 'pip', 'az', 'aws', 'kubectl'];
-
-  // Phase 1: Local heuristics - find the closest valid executables if the command is invalid
-  if (!isCommandValid) {
-    const scored = executables.map(cmd => {
-      let dist = levenshtein.get(extractedCommand, cmd);
-      if (popularCommands.includes(cmd)) dist -= 1.1; // Boost popular commands
-      return { cmd, dist };
-    });
-    
-    scored.sort((a, b) => a.dist - b.dist);
-    closestCommands = scored.slice(0, 10).map(x => x.cmd);
-    
-    bestMatch = closestCommands[0];
-    bestDist = scored[0].dist;
-  }
-
   const errorId = crypto.randomUUID();
   const matchedRule = {
     id: errorId,
-    description: `Command failed with exit code ${payload.exitCode}.`,
+    description: `Command '${extractedCommand}' failed with exit code ${payload.exitCode}. Check your arguments.`,
     actions: []
   };
-
-  // Only suggest direct local fix if it's a single word and we are very confident (dist 1-2)
-  if (!isCommandValid && !hasArguments && bestMatch && bestDist <= 1.5) {
-    matchedRule.description = `Did you mean '${bestMatch}'?`;
-    matchedRule.actions = [{
-      label: `Run '${bestMatch}'`,
-      command: bestMatch
-    }];
-  } else {
-    // Phase 2: Everything else goes to LLM. We will pass closestCommands to the LLM as a hint.
-    matchedRule.description = `Analyzing error with local AI...`;
-    ws.send(META({ type: 'ERROR', rule: matchedRule, errorId }));
-
-    try {
-      // Pass closestCommands as a hint to the LLM
-      const llmSuggestion = await analyzeCommandError({ ...payload, closestCommands });
-      // Ensure LLM didn't just repeat the same failing command
-      if (llmSuggestion && llmSuggestion.toLowerCase() !== fullCmd.toLowerCase()) {
-        matchedRule.description = `AI Suggestion: '${llmSuggestion}'`;
-        matchedRule.actions = [{
-          label: `Run '${llmSuggestion}'`,
-          command: llmSuggestion
-        }];
-        ws.send(META({ type: 'ERROR', rule: matchedRule, errorId }));
-      } else {
-        // If LLM has no better idea, update the UI
-        matchedRule.description = `Command '${extractedCommand}' failed. Check your arguments.`;
-        ws.send(META({ type: 'ERROR', rule: matchedRule, errorId }));
-      }
-    } catch (error) {
-      console.error('LLM Analysis failed:', error.message);
-    }
-    return;
-  }
 
   ws.send(META({ type: 'ERROR', rule: matchedRule, errorId }));
 }
@@ -406,6 +347,40 @@ function buildShellConfig(shell, platform) {
     fs.writeFileSync(
       initPath,
       `$global:OriginalPrompt = $function:prompt\n` +
+      `function global:prompt {\n` +
+      `  $success = $?\n` +
+      `  $exitCode = $LASTEXITCODE\n` +
+      `  if (-not $success) {\n` +
+      `    $lastCommandObj = Get-History -Count 1\n` +
+      `    $lastCommand = ""\n` +
+      `    if ($lastCommandObj) {\n` +
+      `      $lastCommand = $lastCommandObj.CommandLine.Trim()\n` +
+      `    } elseif ($Error.Count -gt 0) {\n` +
+      `      $lastCommand = $Error[0].InvocationInfo.Line.Trim()\n` +
+      `    }\n` +
+      `    if ($lastCommand) {\n` +
+      `      $payload = @{ type = "COMMAND_FAILED"; cmd = $lastCommand; exitCode = $exitCode; cwd = $PWD.Path } | ConvertTo-Json -Compress\n` +
+      `      Write-Host "$([char]27)]999;$payload$([char]7)" -NoNewline\n` +
+      `    }\n` +
+      `  }\n` +
+      `  $p = $PWD.Path -replace '\\\\', '/'\n` +
+      `  Write-Host "$([char]27)]7;file://$env:COMPUTERNAME/$p$([char]7)" -NoNewline\n` +
+      `  return & $global:OriginalPrompt\n` +
+      `}\n`
+    );
+    shellArgs = ['-NoExit', '-File', initPath];
+  }
+
+  return { shellArgs, shellEnv };
+}
+
+function killPty(ptyProcess, platform, force = false) {
+  if (platform === 'win32') {
+    ptyProcess.kill();
+  } else {
+    ptyProcess.kill(force ? 'SIGKILL' : 'SIGTERM');
+  }
+}$function:prompt\n` +
       `function global:prompt {\n` +
       `  $success = $?\n` +
       `  $exitCode = $LASTEXITCODE\n` +
