@@ -37,6 +37,12 @@ export const useStore = create(
       toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
       setActiveSidebarTab: (tab) => set({ activeSidebarTab: tab, isSidebarOpen: true }),
       setTheme: (theme) => set({ theme }),
+      isSettingsOpen: false,
+      setSettingsOpen: (isOpen) => set({ isSettingsOpen: isOpen }),
+
+      // --- Config Management ---
+      aiConfig: null,
+      setAiConfig: (config) => set({ aiConfig: config }),
 
       // --- Snippet Management ---
       addSnippet: (snippet) => set((state) => ({

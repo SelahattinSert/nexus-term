@@ -20,7 +20,16 @@ const ROOT = (process.env.HOME || process.env.USERPROFILE || process.cwd());
 
 // --- Static Files (Frontend Build) ---
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-app.use(express.static(path.join(__dirname, 'public')));
+const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+
+// Priority: client/dist (for development) > server/public (for distribution)
+if (fs.existsSync(clientDistPath)) {
+  console.log(`\x1b[34m[NexusTerm] Serving frontend from development path: ${clientDistPath}\x1b[0m`);
+  app.use(express.static(clientDistPath));
+} else {
+  app.use(express.static(path.join(__dirname, 'public')));
+}
+
 app.use(express.json());
 
 // --- Auth Middleware (For all /api routes) ---
@@ -30,6 +39,12 @@ function requireToken(req, res, next) {
 }
 
 // --- Terminal API ---
+import voiceRoute from './routes/voice.js';
+import settingsRoute from './routes/settings.js';
+
+app.use('/api/voice', requireToken, voiceRoute);
+app.use('/api/settings', requireToken, settingsRoute);
+
 app.get('/api/shells', requireToken, (req, res) => {
   const shells = getAvailableShells();
   res.json({ shells });

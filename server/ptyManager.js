@@ -3,7 +3,6 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import levenshtein from 'fast-levenshtein';
 import { getSystemExecutables } from './pathScanner.js';
 import { getGitStatus, fetchAndGetGitStatus } from './gitMonitor.js';
 
@@ -375,43 +374,20 @@ function buildShellConfig(shell, platform) {
 }
 
 function killPty(ptyProcess, platform, force = false) {
-  if (platform === 'win32') {
-    ptyProcess.kill();
-  } else {
-    ptyProcess.kill(force ? 'SIGKILL' : 'SIGTERM');
+  try {
+    if (platform === 'win32') {
+      ptyProcess.kill();
+    } else {
+      ptyProcess.kill(force ? 'SIGKILL' : 'SIGTERM');
+    }
+  } catch (err) {
+    console.error('Failed to kill PTY gracefully:', err.message);
   }
-}$function:prompt\n` +
-      `function global:prompt {\n` +
-      `  $success = $?\n` +
-      `  $exitCode = $LASTEXITCODE\n` +
-      `  if (-not $success) {\n` +
-      `    $lastCommandObj = Get-History -Count 1\n` +
-      `    $lastCommand = ""\n` +
-      `    if ($lastCommandObj) {\n` +
-      `      $lastCommand = $lastCommandObj.CommandLine.Trim()\n` +
-      `    } elseif ($Error.Count -gt 0) {\n` +
-      `      $lastCommand = $Error[0].InvocationInfo.Line.Trim()\n` +
-      `    }\n` +
-      `    if ($lastCommand) {\n` +
-      `      $payload = @{ type = "COMMAND_FAILED"; cmd = $lastCommand; exitCode = $exitCode; cwd = $PWD.Path } | ConvertTo-Json -Compress\n` +
-      `      Write-Host "$([char]27)]999;$payload$([char]7)" -NoNewline\n` +
-      `    }\n` +
-      `  }\n` +
-      `  $p = $PWD.Path -replace '\\\\', '/'\n` +
-      `  Write-Host "$([char]27)]7;file://$env:COMPUTERNAME/$p$([char]7)" -NoNewline\n` +
-      `  return & $global:OriginalPrompt\n` +
-      `}\n`
-    );
-    shellArgs = ['-NoExit', '-File', initPath];
-  }
-
-  return { shellArgs, shellEnv };
 }
 
-function killPty(ptyProcess, platform, force = false) {
-  if (platform === 'win32') {
-    ptyProcess.kill();
-  } else {
-    ptyProcess.kill(force ? 'SIGKILL' : 'SIGTERM');
+export function injectCommand(sessionId, command) {
+  if (sessions.has(sessionId)) {
+    const session = sessions.get(sessionId);
+    session.pty.write(`${command}\r`);
   }
 }
