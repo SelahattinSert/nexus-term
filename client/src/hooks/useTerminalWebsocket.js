@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store';
 
-export function useTerminalWebsocket(sessionId, termRef, fitAddonRef, isReadyRef) {
+export function useTerminalWebsocket(sessionId, termInstance, fitAddonRef, isReadyRef) {
   const wsRef = useRef(null);
 
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get('token');
-    if (!token || !termRef.current) return;
+    if (!token || !termInstance) return;
 
-    const term = termRef.current;
+    const term = termInstance;
     const wsUrl = `ws://127.0.0.1:4000?token=${token}&sessionId=${sessionId}`;
 
     const trySendReady = () => {
@@ -86,7 +86,9 @@ export function useTerminalWebsocket(sessionId, termRef, fitAddonRef, isReadyRef
 
     setTimeout(() => {
       try {
-        fitAddonRef.current?.fit();
+        if (fitAddonRef && fitAddonRef.current) {
+          fitAddonRef.current.fit();
+        }
         term.focus();
         trySendReady();
       } catch {
@@ -97,7 +99,7 @@ export function useTerminalWebsocket(sessionId, termRef, fitAddonRef, isReadyRef
     return () => {
       if (wsRef.current) wsRef.current.close();
     };
-  }, [sessionId, termRef, fitAddonRef, isReadyRef]);
+  }, [sessionId, termInstance, fitAddonRef, isReadyRef]);
 
   return wsRef;
 }

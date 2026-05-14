@@ -10,7 +10,6 @@ import os from 'os';
 import open from 'open';
 import { fileURLToPath } from 'url';
 import { handleConnection, getAvailableShells, createTerminal } from './ptyManager.js';
-import { initLlama } from './llmService.js';
 
 const app = express();
 const TOKEN = crypto.randomBytes(16).toString('hex');
@@ -21,7 +20,16 @@ const ROOT = (process.env.HOME || process.env.USERPROFILE || process.cwd());
 
 // --- Static Files (Frontend Build) ---
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-app.use(express.static(path.join(__dirname, 'public')));
+const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+
+// Priority: client/dist (for development) > server/public (for distribution)
+if (fs.existsSync(clientDistPath)) {
+  console.log(`\x1b[34m[NexusTerm] Serving frontend from development path: ${clientDistPath}\x1b[0m`);
+  app.use(express.static(clientDistPath));
+} else {
+  app.use(express.static(path.join(__dirname, 'public')));
+}
+
 app.use(express.json());
 
 // --- Auth Middleware (For all /api routes) ---
@@ -31,6 +39,12 @@ function requireToken(req, res, next) {
 }
 
 // --- Terminal API ---
+import voiceRoute from './routes/voice.js';
+import settingsRoute from './routes/settings.js';
+
+app.use('/api/voice', requireToken, voiceRoute);
+app.use('/api/settings', requireToken, settingsRoute);
+
 app.get('/api/shells', requireToken, (req, res) => {
   const shells = getAvailableShells();
   res.json({ shells });
@@ -183,9 +197,6 @@ server.listen(PORT, HOST, async () => {
   const url = `http://${HOST}:${PORT}/?token=${TOKEN}`;
   console.log('\x1b[32m🚀 NexusTerm started!\x1b[0m');
   console.log(`Interface: \x1b[36m${url}\x1b[0m`);
-  
-  // Initialize the embedded LLM asynchronously in the background
-  initLlama().catch(console.error);
 
   try {
     await open(url);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -6,13 +6,10 @@ import { SearchAddon } from '@xterm/addon-search';
 import { Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useStore } from '../store';
 import { useTerminalWebsocket } from '../hooks/useTerminalWebsocket';
-import { Trie } from '../utils/Trie';
 import '@xterm/xterm/css/xterm.css';
 
 export default function NexusTerm({ sessionId }) {
   const divRef = useRef(null);
-  const [suggestions, setSuggestions] = useState([]);
-  const suggestionsRef = useRef([]);
   const { theme } = useStore();
   const termRef = useRef(null);
   const searchAddonRef = useRef(null);
@@ -21,18 +18,13 @@ export default function NexusTerm({ sessionId }) {
   
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
-
-  const executableTrie = useMemo(() => new Trie(), []);
-
-  useEffect(() => {
-    suggestionsRef.current = suggestions;
-  }, [suggestions]);
+  const [termInstance, setTermInstance] = useState(null);
 
   // Update terminal theme when zustand theme changes
   useEffect(() => {
     if (!termRef.current) return;
     
-    setTimeout(() => {
+    const applyTheme = () => {
       const computedStyle = getComputedStyle(document.documentElement);
       const bg = computedStyle.getPropertyValue('--ctp-base').trim() || '#1e1e2e';
       const fg = computedStyle.getPropertyValue('--ctp-text').trim() || '#cdd6f4';
@@ -45,23 +37,14 @@ export default function NexusTerm({ sessionId }) {
         selectionBackground: 'rgba(255, 255, 0, 0.5)',
         selectionInactiveBackground: 'rgba(255, 255, 0, 0.3)'
       };
-    }, 50);
+    };
+
+    const timer = setTimeout(applyTheme, 50);
+    return () => clearTimeout(timer);
   }, [theme]);
 
-  // Listen to executables changes and rebuild Trie
-  useEffect(() => {
-    return useStore.subscribe(
-      (state) => state.executables,
-      (executables) => {
-        if (executables && executables.length > 0) {
-          executableTrie.buildFromList(executables);
-        }
-      }
-    );
-  }, [executableTrie]);
-
   // Use the custom hook for WebSocket and connection logic
-  const wsRef = useTerminalWebsocket(sessionId, termRef, fitAddonRef, isReadyRef);
+  const wsRef = useTerminalWebsocket(sessionId, termInstance, fitAddonRef, isReadyRef);
 
   useEffect(() => {
     const isWindows = navigator.userAgent.includes('Windows');
@@ -100,37 +83,15 @@ export default function NexusTerm({ sessionId }) {
     
     searchAddonRef.current = searchAddon;
     fitAddonRef.current = fitAddon;
+    
+    // Defer state update to satisfy linting rules for effects
+    const timer = setTimeout(() => {
+      setTermInstance(term);
+    }, 0);
 
     if (import.meta.env.MODE === 'test') {
       window.term = term;
     }
-
-    // ── AUTOCOMPLETE: Monitor input buffer using Trie ────────────────────────
-    let typingTimeout;
-    term.onKey(({ domEvent }) => {
-      if (domEvent.key === 'Enter' || domEvent.ctrlKey || domEvent.altKey || domEvent.metaKey) {
-        setSuggestions([]);
-        return;
-      }
-      
-      clearTimeout(typingTimeout);
-      typingTimeout = setTimeout(() => {
-        const buffer = term.buffer.active;
-        const lineStr = buffer.getLine(buffer.cursorY + buffer.baseY)?.translateToString(true) || '';
-        
-        const textBeforeCursor = lineStr.substring(0, buffer.cursorX).trimStart();
-        const words = textBeforeCursor.trim().split(/\s+/);
-        const currentWord = words[words.length - 1];
-        
-        if (currentWord && currentWord.length > 1) {
-          // Use O(M) Trie search instead of O(N * M) Array filter
-          const matches = executableTrie.searchPrefix(currentWord, 6).filter(e => e !== currentWord).slice(0, 5);
-          setSuggestions(matches);
-        } else {
-          setSuggestions([]);
-        }
-      }, 100);
-    });
 
     // ── CLIPBOARD & HOTKEYS ────────────────────────────
     term.attachCustomKeyEventHandler((e) => {
@@ -146,10 +107,6 @@ export default function NexusTerm({ sessionId }) {
           term.clearSelection();
           return false;
         }
-      }
-      
-      if (e.code === 'Tab' && e.type === 'keydown' && suggestionsRef.current.length > 0) {
-        setSuggestions([]);
       }
       
       return true;
@@ -241,14 +198,14 @@ export default function NexusTerm({ sessionId }) {
     window.addEventListener('nexus-execute-command', executeCommandListener);
 
     return () => {
+      clearTimeout(timer);
       resizeObserver.disconnect();
       window.removeEventListener(`NEXUS_ACTION_${sessionId}`, actionListener);
       window.removeEventListener(`NEXUS_META_ACTION_${sessionId}`, metaActionListener);
       window.removeEventListener('nexus-execute-command', executeCommandListener);
-      clearTimeout(typingTimeout);
       term.dispose();
     };
-  }, [sessionId, theme, executableTrie, wsRef]);
+  }, [sessionId, wsRef]);
 
   return (
     <div className="relative w-full h-full overflow-hidden">
@@ -293,17 +250,6 @@ export default function NexusTerm({ sessionId }) {
         </div>
       )}
 
-      {suggestions.length > 0 && (
-        <div className="absolute bottom-4 right-4 z-40 bg-ctp-surface0 border border-ctp-surface1 rounded-md shadow-lg p-2 flex flex-col gap-1 text-sm text-ctp-subtext0 pointer-events-none animate-in fade-in">
-          <div className="text-xs text-[#6c7086] mb-1 uppercase tracking-wider">Suggestions</div>
-          {suggestions.map((s, i) => (
-            <div key={i} className="px-2 py-0.5 rounded bg-ctp-base text-ctp-text">
-              {s}
-            </div>
-          ))}
-          <div className="text-[10px] text-[#6c7086] mt-1">Press Tab to complete natively</div>
-        </div>
-      )}
       <div ref={divRef} className="w-full h-full bg-ctp-base overflow-hidden" />
     </div>
   );

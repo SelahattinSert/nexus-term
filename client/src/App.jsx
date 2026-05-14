@@ -8,6 +8,8 @@ import SnippetsPanel from './components/SnippetsPanel';
 import CommandPalette from './components/CommandPalette';
 import ErrorBoundary from './components/ErrorBoundary';
 import SystemMonitor from './components/SystemMonitor';
+import VoiceOrb from './components/VoiceOrb/VoiceOrb';
+import SettingsModal from './components/SettingsModal';
 import { useStore } from './store';
 import { Toaster } from 'sonner';
 
@@ -65,6 +67,8 @@ function App() {
           </div>
         </main>
         <CommandPalette />
+        <VoiceOrb />
+        <SettingsModal />
       </div>
     </ErrorBoundary>
   );
