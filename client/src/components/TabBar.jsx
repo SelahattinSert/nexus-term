@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
-import { Plus, X, ChevronDown, Terminal } from 'lucide-react';
+import { Plus, X, ChevronDown, Terminal, TerminalSquare, FileCode } from 'lucide-react';
 
 export default function TabBar() {
   const { sessions, editors = [], panes, focusedPane, setFocusedPane, createSession, removeSession, removeEditor, swapPane, addPane } = useStore();
@@ -30,64 +30,59 @@ export default function TabBar() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isDropdownOpen]);
 
-  const handleTabClick = (session) => {
-    const isVisible = panes.includes(session.id);
+  const handleTabClick = (id) => {
+    const isVisible = panes.includes(id);
     if (isVisible) {
-      setFocusedPane(session.id);
+      setFocusedPane(id);
     } else {
       // If grid is full (4 panes), swap the focused pane; otherwise add to grid
       const focusedIndex = panes.indexOf(focusedPane);
       if (panes.length >= 4 && focusedIndex !== -1) {
-        swapPane(focusedIndex, session.id);
+        swapPane(focusedIndex, id);
       } else if (panes.length < 4) {
-        addPane(session.id);
-        setFocusedPane(session.id);
+        addPane(id);
+        setFocusedPane(id);
       } else {
-        swapPane(0, session.id);
+        swapPane(0, id);
       }
     }
   };
 
-  const allTabs = [
-    ...sessions.map(s => ({ ...s, type: 'terminal', title: s.pwd.split(/[/\\]/).pop() || '~' })),
-    ...editors.map(e => ({ ...e, type: 'editor', title: e.path.split(/[/\\]/).pop() + (e.isDirty ? ' •' : '') }))
-  ];
+  const allTabs = [...sessions, ...editors];
 
   return (
-    <div className="flex bg-ctp-crust h-10 items-center border-b border-ctp-surface0 shrink-0">
-      {/* Scrollable tab area - no flex-1, min-w-0 allows shrinking when many tabs exist */}
-      <div className="flex items-center h-full overflow-x-auto no-scrollbar pl-2 min-w-0">
-        {allTabs.map((tab) => {
-          const isVisible = panes.includes(tab.id);
-          const isFocused = focusedPane === tab.id;
-
+    <div className="h-10 bg-ctp-crust/50 backdrop-blur-md border-b border-ctp-surface0/50 flex items-center px-2 justify-between shrink-0 z-20 overflow-hidden">
+      <div className="flex items-center gap-1 h-full overflow-x-auto scrollbar-none flex-1 pr-2">
+        {allTabs.map((item) => {
+          const id = item.id;
+          const isSession = sessions.find(s => s.id === id);
+          const isEditor = editors.find(e => e.id === id);
+          const active = focusedPane === id;
+          const label = isSession ? `Terminal ${id.slice(-4)}` : (isEditor?.path?.split(/[/\\]/).pop() || 'Editor');
+          
           return (
-            <div 
-              key={tab.id}
-              onClick={() => handleTabClick(tab)}
-              className={`
-                flex items-center h-full px-4 gap-2 border-r border-ctp-surface0 cursor-pointer min-w-[120px] max-w-[200px] select-none shrink-0
-                ${isFocused ? 'bg-ctp-base text-ctp-text border-t-2 border-t-ctp-blue' : 'text-ctp-subtext0 hover:bg-ctp-mantle border-t-2 border-t-transparent'}
-              `}
+            <div
+              key={id}
+              onClick={() => handleTabClick(id)}
+              className={`group flex items-center justify-between h-8 px-2 rounded-md cursor-pointer transition-all duration-200 border text-xs gap-2 select-none flex-1 min-w-[80px] max-w-[160px] ${
+                active 
+                  ? 'bg-ctp-surface0/60 border-ctp-blue/50 text-ctp-text shadow-sm' 
+                  : 'border-transparent text-ctp-subtext0 hover:bg-ctp-surface0/30 hover:text-ctp-text'
+              }`}
             >
-              <span className="truncate text-sm flex-1 font-mono">{tab.title}</span>
-              {!isVisible && <span className="w-2 h-2 rounded-full bg-ctp-red shrink-0" title="Running in background"></span>}
+              <div className="flex items-center gap-2 overflow-hidden">
+                {isSession ? <TerminalSquare size={14} className={`shrink-0 ${active ? "text-ctp-blue" : "text-ctp-surface2"}`} /> : <FileCode size={14} className={`shrink-0 ${active ? "text-ctp-peach" : "text-ctp-surface2"}`} />}
+                <span className="truncate">{label}</span>
+              </div>
               <button 
                 onClick={(e) => { 
                   e.stopPropagation(); 
-                  if (tab.type === 'terminal') {
-                    removeSession(tab.id);
-                  } else {
-                    if (tab.isDirty) {
-                      const confirmClose = window.confirm("You have unsaved changes. Are you sure you want to close this file without saving?");
-                      if (!confirmClose) return;
-                    }
-                    removeEditor(tab.id);
-                  }
+                  if (isSession) removeSession(id);
+                  else removeEditor(id); 
                 }}
-                className="p-1 hover:bg-ctp-surface0 rounded opacity-60 hover:opacity-100"
+                className={`p-0.5 shrink-0 rounded-full transition-opacity ${active ? 'opacity-100 hover:bg-ctp-red/20 hover:text-ctp-red' : 'opacity-0 group-hover:opacity-100 hover:bg-ctp-surface1'}`}
               >
-                <X size={14} />
+                <X size={12} />
               </button>
             </div>
           );
@@ -112,7 +107,7 @@ export default function TabBar() {
         </button>
         
         {isDropdownOpen && (
-          <div className="absolute top-full left-0 mt-1 w-56 bg-ctp-mantle border border-ctp-surface0 rounded-lg shadow-xl z-50 overflow-hidden">
+          <div className="absolute top-full right-0 mt-1 w-56 bg-ctp-mantle border border-ctp-surface0 rounded-lg shadow-xl z-50 overflow-hidden">
             <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-ctp-subtext0 border-b border-ctp-surface0">
               Select Shell
             </div>

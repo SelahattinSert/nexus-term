@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, Terminal, Star, Plus, Settings, X, Palette } from 'lucide-react';
 import { useStore } from '../store';
+import { themes } from '../themes';
 import VisualCommandBuilder from './VisualCommandBuilder';
 
 export default function CommandPalette() {
@@ -61,13 +62,13 @@ export default function CommandPalette() {
     }
   }));
 
-  const themeCommands = [
-    { id: 'theme_pitch_black', name: 'Theme: Pitch Black', icon: Palette, action: () => { setTheme('theme-pitch-black'); setIsOpen(false); } },
-    { id: 'theme_mocha', name: 'Theme: Catppuccin Mocha', icon: Palette, action: () => { setTheme('theme-mocha'); setIsOpen(false); } },
-    { id: 'theme_macchiato', name: 'Theme: Catppuccin Macchiato', icon: Palette, action: () => { setTheme('theme-macchiato'); setIsOpen(false); } },
-    { id: 'theme_frappe', name: 'Theme: Catppuccin Frappe', icon: Palette, action: () => { setTheme('theme-frappe'); setIsOpen(false); } },
-    { id: 'theme_latte', name: 'Theme: Catppuccin Latte', icon: Palette, action: () => { setTheme('theme-latte'); setIsOpen(false); } }
-  ];
+  // Dynamically generate theme commands from the theme engine
+  const themeCommands = Object.entries(themes).map(([id, t]) => ({
+    id: `theme_${id}`,
+    name: `Theme: ${t.name}`,
+    icon: Palette,
+    action: () => { setTheme(id); setIsOpen(false); }
+  }));
 
   const allCommands = [...snippetCommands, ...defaultCommands, ...themeCommands];
   

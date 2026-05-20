@@ -24,8 +24,8 @@ export const useStore = create(
       isSidebarOpen: false,
       activeSidebarTab: 'explorer', // 'explorer' or 'git' or 'snippets'
 
-      // Theme
-      theme: 'theme-mocha',
+      // Theme (ID from themes.js)
+      theme: 'catppuccin-mocha',
 
       // Snippets
       snippets: [],

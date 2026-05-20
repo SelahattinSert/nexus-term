@@ -61,6 +61,22 @@ app.post('/api/terminals', requireToken, (req, res) => {
 import { promises as fsPromises } from 'fs';
 
 // --- File Manager API ---
+import { getGitStatus, fetchAndGetGitStatus } from './gitMonitor.js';
+
+app.get('/api/git/status', requireToken, (req, res) => {
+  const requestedPath = req.query.path || ROOT;
+  getGitStatus(requestedPath, (status) => {
+    res.json(status || { branch: null });
+  });
+});
+
+app.post('/api/git/fetch', requireToken, (req, res) => {
+  const requestedPath = req.query.path || ROOT;
+  fetchAndGetGitStatus(requestedPath, (status) => {
+    res.json(status || { branch: null });
+  });
+});
+
 app.get('/api/files', requireToken, async (req, res) => {
   const requestedPath = req.query.path || ROOT;
   const safePath = path.resolve(requestedPath);
@@ -73,7 +89,11 @@ app.get('/api/files', requireToken, async (req, res) => {
 
   try {
     const files = (await fsPromises.readdir(safePath, { withFileTypes: true }))
-      .map(dirent => ({ name: dirent.name, isDir: dirent.isDirectory() }));
+      .map(dirent => ({ 
+        name: dirent.name, 
+        isDir: dirent.isDirectory(),
+        path: path.join(safePath, dirent.name).replace(/\\/g, '/')
+      }));
     res.json(files);
   } catch (err) {
     res.json([]); // Read error: return empty list, prevent crash

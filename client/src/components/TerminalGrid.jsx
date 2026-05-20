@@ -32,10 +32,10 @@ const PaneWrapper = ({ paneId, focusedPane, setFocusedPane }) => {
 
 const CustomResizeHandle = ({ direction }) => (
   <PanelResizeHandle 
-    className={`group flex items-center justify-center bg-ctp-crust transition-colors ${direction === 'horizontal' ? 'w-1.5 cursor-col-resize hover:bg-ctp-surface0' : 'h-1.5 cursor-row-resize hover:bg-ctp-surface0'}`}
+    className={`group flex items-center justify-center bg-ctp-base/30 transition-all duration-300 ${direction === 'horizontal' ? 'w-1 cursor-col-resize hover:bg-ctp-blue/20' : 'h-1 cursor-row-resize hover:bg-ctp-blue/20'}`}
     orientation={direction}
   >
-    <div className={`bg-ctp-surface2 rounded-full transition-colors group-hover:bg-ctp-blue ${direction === 'horizontal' ? 'w-0.5 h-8' : 'h-0.5 w-8'}`} />
+    <div className={`bg-ctp-surface1 rounded-full transition-all duration-300 group-hover:bg-ctp-blue group-active:bg-ctp-blue shadow-[0_0_8px_rgba(137,180,250,0)] group-hover:shadow-[0_0_8px_rgba(137,180,250,0.5)] ${direction === 'horizontal' ? 'w-0.5 h-12' : 'h-0.5 w-12'}`} />
   </PanelResizeHandle>
 );
 
