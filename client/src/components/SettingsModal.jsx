@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion as Motion } from 'framer-motion';
-import { X, Settings, Database, Key, Server, Hash, Monitor, Palette, TerminalSquare } from 'lucide-react';
+import { X, Settings, Database, Key, Server, Hash, Monitor, Palette, TerminalSquare, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useStore } from '../store';
 import { themes, getThemesByCategory, applyTheme } from '../themes';
 import { toast } from 'sonner';
@@ -12,18 +12,63 @@ const PROVIDER_DEFAULTS = {
   ollama: { url: 'http://localhost:11434/v1', model: 'llama3' }
 };
 
-function VoiceWaveform({ color }) {
+function MiniVoiceOrb({ isSpeaking, color }) {
+  const status = isSpeaking ? 'speaking' : 'idle';
+  
   return (
-    <div className="flex items-center gap-0.5 h-3">
-      {[1, 2, 3, 4].map((i) => (
-        <Motion.div
-          key={i}
-          animate={{ height: ['20%', '100%', '20%'] }}
-          transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15, ease: "easeInOut" }}
-          className="w-0.5 rounded-full"
+    <div className="relative flex items-center justify-center w-24 h-24">
+      {/* Wave Rings & Arcs */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className={`absolute w-full h-full rounded-full border border-ctp-surface1 opacity-20 transition-all duration-1000 ${isSpeaking ? 'scale-110 animate-[pulse_4s_ease-in-out_infinite]' : 'scale-90 opacity-0'}`} />
+        
+        {isSpeaking && (
+          <>
+            <div className="absolute w-20 h-20 rounded-full opacity-20 animate-[ping_2s_infinite]" style={{ backgroundColor: color }} />
+            <div className="absolute w-16 h-16 rounded-full opacity-30 animate-[ping_1.5s_infinite]" style={{ backgroundColor: color, animationDelay: '0.4s' }} />
+          </>
+        )}
+
+        {/* Scaled down SVG arcs */}
+        <div className="absolute inset-[-12px]">
+          <svg className={`w-full h-full ${status === 'speaking' ? 'animate-[spin_3s_linear_infinite]' : 'animate-[spin_8s_linear_infinite]'}`} viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="38" fill="none" stroke={color} strokeWidth="3" strokeDasharray="30 150" className="opacity-80" />
+            <circle cx="50" cy="50" r="38" fill="none" stroke={color} strokeWidth="2" strokeDasharray="15 200" strokeDashoffset="120" className="opacity-90" />
+            <g className={`origin-center ${status === 'speaking' ? 'animate-[spin_4s_linear_reverse_infinite]' : 'animate-[spin_12s_linear_reverse_infinite]'}`}>
+              <circle cx="50" cy="50" r="44" fill="none" stroke={color} strokeWidth="2" strokeDasharray="40 120" className="opacity-50" />
+              <circle cx="50" cy="50" r="44" fill="none" stroke={color} strokeWidth="1" strokeDasharray="10 180" strokeDashoffset="80" className="opacity-70" />
+            </g>
+            <g className="origin-center" style={{ transform: 'rotate(-45deg)' }}>
+              <circle cx="50" cy="50" r="50" fill="none" stroke={color} strokeWidth="0.5" strokeDasharray="80 150" className="opacity-30" />
+              <circle cx="50" cy="50" r="50" fill="none" stroke={color} strokeWidth="1" strokeDasharray="10 200" strokeDashoffset="60" className="opacity-50" />
+            </g>
+          </svg>
+        </div>
+      </div>
+
+      {/* Main Orb */}
+      <div 
+        className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-500 z-10 shadow-xl ${isSpeaking ? 'scale-105' : ''}`}
+        style={{
+          backgroundColor: 'var(--ctp-crust)',
+          border: `2px solid color-mix(in srgb, ${color} 60%, transparent)`,
+          boxShadow: `0 0 20px color-mix(in srgb, ${color} ${isSpeaking ? '80%' : '20%'}, transparent)`
+        }}
+      >
+        <div className="absolute inset-1.5 rounded-full border border-ctp-surface0 opacity-30" />
+        
+        <div 
+          className={`absolute w-6 h-6 rounded-full blur-md transition-all duration-500 ${isSpeaking ? 'opacity-80 animate-pulse' : 'opacity-10'}`}
           style={{ backgroundColor: color }}
         />
-      ))}
+        
+        <div className="relative z-20 pointer-events-none flex items-center justify-center w-full h-full">
+          {isSpeaking ? (
+             <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: color, boxShadow: `0 0 10px ${color}` }} />
+          ) : (
+             <div className="w-2 h-2 rounded-full opacity-50" style={{ backgroundColor: color }} />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -83,6 +128,7 @@ export default function SettingsModal() {
   const [whisperLanguage, setWhisperLanguage] = useState('auto');
   const [ttsVoice, setTtsVoice] = useState('');
   const [availableVoices, setAvailableVoices] = useState([]);
+  const [isPlayingPreview, setIsPlayingPreview] = useState(false);
   const [themeFilter, setThemeFilter] = useState('all');
 
   // Load available TTS voices safely
@@ -173,6 +219,40 @@ export default function SettingsModal() {
 
   const { dark, light } = getThemesByCategory();
   const filteredThemes = themeFilter === 'dark' ? dark : themeFilter === 'light' ? light : [...dark, ...light];
+
+  // Helper logic for voice slider
+  const voiceChoices = [{ voiceURI: '', name: 'System Default', lang: 'Auto' }, ...availableVoices];
+  const currentVoiceIndex = voiceChoices.findIndex(v => v.voiceURI === ttsVoice);
+  const safeVoiceIndex = currentVoiceIndex === -1 ? 0 : currentVoiceIndex;
+  const currentVoiceObj = voiceChoices[safeVoiceIndex];
+
+  const handleVoiceChange = (newIndex) => {
+    const choice = voiceChoices[newIndex];
+    setTtsVoice(choice.voiceURI);
+
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      setIsPlayingPreview(false);
+      if (choice.voiceURI !== '') {
+        const voice = availableVoices.find(v => v.voiceURI === choice.voiceURI);
+        if (voice) {
+          const previewText = voice.lang.startsWith('tr') 
+            ? "Merhaba, sana nasıl yardımcı olabilirim?" 
+            : "Hello, how can I help you today?";
+          const utterance = new SpeechSynthesisUtterance(previewText);
+          utterance.voice = voice;
+          utterance.rate = 1.05;
+          utterance.onstart = () => setIsPlayingPreview(true);
+          utterance.onend = () => setIsPlayingPreview(false);
+          utterance.onerror = () => setIsPlayingPreview(false);
+          window.speechSynthesis.speak(utterance);
+        }
+      }
+    }
+  };
+
+  const nextVoice = () => handleVoiceChange((safeVoiceIndex + 1) % voiceChoices.length);
+  const prevVoice = () => handleVoiceChange((safeVoiceIndex - 1 + voiceChoices.length) % voiceChoices.length);
 
   return (
     <AnimatePresence>
@@ -280,60 +360,33 @@ export default function SettingsModal() {
                     <div className="space-y-3 mt-4 pt-4 border-t" style={{ borderColor: 'color-mix(in srgb, var(--ctp-surface0) 50%, transparent)' }}>
                       <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Monitor size={14}/> Assistant Voice (TTS)</label>
                       
-                      <div className="grid grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
-                        {/* Default Voice Card */}
-                        <button
-                          type="button"
-                          onClick={() => setTtsVoice('')}
-                          className={`p-3 rounded-xl border transition-all text-left flex flex-col gap-1 relative overflow-hidden ${ttsVoice === '' ? 'ring-1 shadow-md' : 'opacity-70 hover:opacity-100'}`}
-                          style={{ 
-                            backgroundColor: ttsVoice === '' ? 'color-mix(in srgb, var(--ctp-blue) 10%, transparent)' : 'color-mix(in srgb, var(--ctp-base) 60%, transparent)',
-                            borderColor: ttsVoice === '' ? 'var(--ctp-blue)' : 'var(--ctp-surface0)'
-                          }}
-                        >
-                          <div className="flex justify-between items-start">
-                            <span className="text-[11px] font-bold">System Default</span>
-                            {ttsVoice === '' && <VoiceWaveform color="var(--ctp-blue)" />}
-                          </div>
-                          <span className="text-[9px] text-ctp-subtext0 uppercase tracking-tighter">Auto Selection</span>
-                        </button>
-
-                        {/* Available Voice Cards */}
-                        {availableVoices.map((v) => {
-                          const isActive = ttsVoice === v.voiceURI;
-                          return (
-                            <button
-                              key={v.voiceURI}
-                              type="button"
-                              onClick={() => {
-                                setTtsVoice(v.voiceURI);
-                                if (window.speechSynthesis) {
-                                  window.speechSynthesis.cancel();
-                                  const previewText = v.lang.startsWith('tr') 
-                                    ? "Merhaba, sana nasıl yardımcı olabilirim?" 
-                                    : "Hello, how can I help you today?";
-                                  const utterance = new SpeechSynthesisUtterance(previewText);
-                                  utterance.voice = v;
-                                  utterance.rate = 1.05;
-                                  window.speechSynthesis.speak(utterance);
-                                }
-                              }}
-                              className={`p-3 rounded-xl border transition-all text-left flex flex-col gap-1 relative overflow-hidden ${isActive ? 'ring-1 shadow-md' : 'opacity-70 hover:opacity-100'}`}
-                              style={{ 
-                                backgroundColor: isActive ? 'color-mix(in srgb, var(--ctp-blue) 10%, transparent)' : 'color-mix(in srgb, var(--ctp-base) 60%, transparent)',
-                                borderColor: isActive ? 'var(--ctp-blue)' : 'var(--ctp-surface0)'
-                              }}
-                            >
-                              <div className="flex justify-between items-start">
-                                <span className="text-[11px] font-bold truncate max-w-[80%]">{v.name.split(' - ')[0]}</span>
-                                {isActive && <VoiceWaveform color="var(--ctp-blue)" />}
-                              </div>
-                              <span className="text-[9px] text-ctp-subtext0 uppercase tracking-tighter">{v.lang}</span>
-                            </button>
-                          );
-                        })}
+                      <div className="flex flex-col items-center justify-center gap-4 py-4 rounded-xl border bg-ctp-mantle/30" style={{ borderColor: 'var(--ctp-surface0)' }}>
+                        <div className="flex items-center justify-center gap-8 w-full px-6">
+                          <button 
+                            type="button" 
+                            onClick={prevVoice}
+                            className="p-2 rounded-full hover:bg-ctp-surface0 transition-colors text-ctp-subtext0 hover:text-ctp-text"
+                          >
+                            <ChevronLeft size={24} />
+                          </button>
+                          
+                          <MiniVoiceOrb isSpeaking={isPlayingPreview} color="var(--ctp-blue)" />
+                          
+                          <button 
+                            type="button" 
+                            onClick={nextVoice}
+                            className="p-2 rounded-full hover:bg-ctp-surface0 transition-colors text-ctp-subtext0 hover:text-ctp-text"
+                          >
+                            <ChevronRight size={24} />
+                          </button>
+                        </div>
+                        
+                        <div className="text-center flex flex-col items-center gap-1">
+                          <span className="text-sm font-bold text-ctp-text">{currentVoiceObj?.name?.split(' - ')[0] || 'System Default'}</span>
+                          <span className="text-[10px] uppercase tracking-widest text-ctp-subtext0">{currentVoiceObj?.lang || 'AUTO'}</span>
+                        </div>
                       </div>
-                      <p className="text-[10px] text-ctp-subtext0 ml-1 italic opacity-60">Tap a voice to hear a preview and select it for your assistant.</p>
+                      <p className="text-[10px] text-ctp-subtext0 ml-1 italic opacity-60 text-center">Use arrows to change the voice. The orb will animate while previewing.</p>
                     </div>
 
                     <button type="submit" className="w-full text-ctp-crust font-bold py-3 rounded-xl shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all mt-6" style={{ backgroundColor: 'var(--ctp-blue)' }}>
