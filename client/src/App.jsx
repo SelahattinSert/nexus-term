@@ -10,6 +10,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import SystemMonitor from './components/SystemMonitor';
 import VoiceOrb from './components/VoiceOrb/VoiceOrb';
 import SettingsModal from './components/SettingsModal';
+import ApprovalModal from './components/ApprovalModal';
 import { useStore } from './store';
 import { applyTheme } from './themes';
 import { Toaster } from 'sonner';
@@ -115,6 +116,7 @@ function App() {
         </main>
         <CommandPalette />
         <VoiceOrb />
+        <ApprovalModal />
         <SettingsModal />
       </div>
     </ErrorBoundary>

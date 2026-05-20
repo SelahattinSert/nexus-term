@@ -2,7 +2,6 @@ import express from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import { transcribeAudio, resolveIntent } from '../services/voiceService.js';
-import { injectCommand } from '../ptyManager.js';
 
 const router = express.Router();
 const upload = multer({ dest: 'uploads/' });
@@ -33,15 +32,8 @@ router.post('/', upload.single('audio'), async (req, res) => {
     const result = await resolveIntent(text, sessionId);
     console.log(`[Voice API] LLM Action resolved:`, result);
 
-    const actions = result.type === 'multi_action' ? result.actions : [result];
-    
-    // Inject terminal commands on backend
-    actions.forEach(action => {
-      if (action.type === 'execute_terminal_command' && action.command) {
-        console.log(`[Voice API] Injecting command into PTY: ${action.command}`);
-        injectCommand(sessionId, action.command);
-      }
-    });
+    // Backend injection removed. All command execution logic, including Approval Modals 
+    // and ReAct looping, is now orchestrated securely by the frontend.
 
     res.json({ success: true, text, action: result });
   } catch (error) {
@@ -53,6 +45,25 @@ router.post('/', upload.single('audio'), async (req, res) => {
       fs.unlinkSync(audioFilePath);
       console.log('[Voice API] Cleaned up temporary audio file.');
     }
+  }
+});
+
+// Autonomous ReAct Loop Endpoint
+router.post('/react', express.json(), async (req, res) => {
+  const { message, sessionId } = req.body;
+  if (!message || !sessionId) {
+    return res.status(400).json({ error: 'message and sessionId are required.' });
+  }
+
+  try {
+    console.log(`[Voice API ReAct] Sending feedback to LLM for autonomous loop...`);
+    const result = await resolveIntent(message, sessionId);
+    console.log(`[Voice API ReAct] LLM Action resolved:`, result);
+    
+    res.json({ success: true, text: "Thinking...", action: result });
+  } catch (error) {
+    console.error('[Voice API ReAct] error:', error);
+    res.status(500).json({ error: error.message });
   }
 });
 

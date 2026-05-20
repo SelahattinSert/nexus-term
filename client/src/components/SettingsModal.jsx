@@ -8,12 +8,27 @@ import { toast } from 'sonner';
 const PROVIDER_DEFAULTS = {
   openai: { url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
   groq: { url: 'https://api.groq.com/openai/v1', model: 'llama3-70b-8192' },
-  gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai/', model: 'gemini-2.5-flash' },
+  gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai/', model: 'gemini-2.5-flash' },       
   ollama: { url: 'http://localhost:11434/v1', model: 'llama3' }
 };
 
-function ThemeCard({ id, themeData, isActive, onSelect, onPreview, onPreviewEnd }) {
-  const ui = themeData.ui;
+function VoiceWaveform({ color }) {
+  return (
+    <div className="flex items-center gap-0.5 h-3">
+      {[1, 2, 3, 4].map((i) => (
+        <Motion.div
+          key={i}
+          animate={{ height: ['20%', '100%', '20%'] }}
+          transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15, ease: "easeInOut" }}
+          className="w-0.5 rounded-full"
+          style={{ backgroundColor: color }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ThemeCard({ id, themeData, isActive, onSelect, onPreview, onPreviewEnd }) {  const ui = themeData.ui;
   return (
     <button
       onClick={() => onSelect(id)}
@@ -63,9 +78,30 @@ export default function SettingsModal() {
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
   const [url, setUrl] = useState('');
+  const [autoExecute, setAutoExecute] = useState(false);
   const [whisperModel, setWhisperModel] = useState('Xenova/whisper-base');
   const [whisperLanguage, setWhisperLanguage] = useState('auto');
+  const [ttsVoice, setTtsVoice] = useState('');
+  const [availableVoices, setAvailableVoices] = useState([]);
   const [themeFilter, setThemeFilter] = useState('all');
+
+  // Load available TTS voices safely
+  useEffect(() => {
+    const loadVoices = () => {
+      if (!window.speechSynthesis) return;
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        // Filter to English and Turkish voices to keep the list clean
+        const filtered = voices.filter(v => v.lang.startsWith('en') || v.lang.startsWith('tr'));
+        setAvailableVoices(filtered);
+      }
+    };
+    
+    loadVoices();
+    if (window.speechSynthesis && window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
   const [previewTheme, setPreviewTheme] = useState(null);
   const [savedTheme, setSavedTheme] = useState(null);
 
@@ -78,8 +114,10 @@ export default function SettingsModal() {
           setApiKey(aiConfig.apiKey || '');
           setModel(aiConfig.model || '');
           setUrl(aiConfig.url || '');
+          setAutoExecute(aiConfig.autoExecute || false);
           setWhisperModel(aiConfig.whisperModel || 'Xenova/whisper-base');
           setWhisperLanguage(aiConfig.whisperLanguage || 'auto');
+          setTtsVoice(aiConfig.ttsVoice || '');
         }
       }, 0);
     }
@@ -113,7 +151,7 @@ export default function SettingsModal() {
 
   const handleSaveAI = async (e) => {
     e.preventDefault();
-    const configData = { provider, apiKey, model, url, whisperModel, whisperLanguage };
+    const configData = { provider, apiKey, model, url, autoExecute, whisperModel, whisperLanguage, ttsVoice };
     try {
       const token = new URLSearchParams(window.location.search).get('token');
       const res = await fetch(`/api/settings?token=${token}`, {
@@ -238,6 +276,66 @@ export default function SettingsModal() {
                       </select>
                       <p className="text-xs text-ctp-subtext0 ml-1 mt-1">Forces Whisper to transcribe in this language. Highly recommended if not using 'Auto'.</p>
                     </div>
+
+                    <div className="space-y-3 mt-4 pt-4 border-t" style={{ borderColor: 'color-mix(in srgb, var(--ctp-surface0) 50%, transparent)' }}>
+                      <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Monitor size={14}/> Assistant Voice (TTS)</label>
+                      
+                      <div className="grid grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
+                        {/* Default Voice Card */}
+                        <button
+                          type="button"
+                          onClick={() => setTtsVoice('')}
+                          className={`p-3 rounded-xl border transition-all text-left flex flex-col gap-1 relative overflow-hidden ${ttsVoice === '' ? 'ring-1 shadow-md' : 'opacity-70 hover:opacity-100'}`}
+                          style={{ 
+                            backgroundColor: ttsVoice === '' ? 'color-mix(in srgb, var(--ctp-blue) 10%, transparent)' : 'color-mix(in srgb, var(--ctp-base) 60%, transparent)',
+                            borderColor: ttsVoice === '' ? 'var(--ctp-blue)' : 'var(--ctp-surface0)'
+                          }}
+                        >
+                          <div className="flex justify-between items-start">
+                            <span className="text-[11px] font-bold">System Default</span>
+                            {ttsVoice === '' && <VoiceWaveform color="var(--ctp-blue)" />}
+                          </div>
+                          <span className="text-[9px] text-ctp-subtext0 uppercase tracking-tighter">Auto Selection</span>
+                        </button>
+
+                        {/* Available Voice Cards */}
+                        {availableVoices.map((v) => {
+                          const isActive = ttsVoice === v.voiceURI;
+                          return (
+                            <button
+                              key={v.voiceURI}
+                              type="button"
+                              onClick={() => {
+                                setTtsVoice(v.voiceURI);
+                                if (window.speechSynthesis) {
+                                  window.speechSynthesis.cancel();
+                                  const previewText = v.lang.startsWith('tr') 
+                                    ? "Merhaba, sana nasıl yardımcı olabilirim?" 
+                                    : "Hello, how can I help you today?";
+                                  const utterance = new SpeechSynthesisUtterance(previewText);
+                                  utterance.voice = v;
+                                  utterance.rate = 1.05;
+                                  window.speechSynthesis.speak(utterance);
+                                }
+                              }}
+                              className={`p-3 rounded-xl border transition-all text-left flex flex-col gap-1 relative overflow-hidden ${isActive ? 'ring-1 shadow-md' : 'opacity-70 hover:opacity-100'}`}
+                              style={{ 
+                                backgroundColor: isActive ? 'color-mix(in srgb, var(--ctp-blue) 10%, transparent)' : 'color-mix(in srgb, var(--ctp-base) 60%, transparent)',
+                                borderColor: isActive ? 'var(--ctp-blue)' : 'var(--ctp-surface0)'
+                              }}
+                            >
+                              <div className="flex justify-between items-start">
+                                <span className="text-[11px] font-bold truncate max-w-[80%]">{v.name.split(' - ')[0]}</span>
+                                {isActive && <VoiceWaveform color="var(--ctp-blue)" />}
+                              </div>
+                              <span className="text-[9px] text-ctp-subtext0 uppercase tracking-tighter">{v.lang}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[10px] text-ctp-subtext0 ml-1 italic opacity-60">Tap a voice to hear a preview and select it for your assistant.</p>
+                    </div>
+
                     <button type="submit" className="w-full text-ctp-crust font-bold py-3 rounded-xl shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all mt-6" style={{ backgroundColor: 'var(--ctp-blue)' }}>
                       Save Voice Settings
                     </button>
@@ -273,6 +371,18 @@ export default function SettingsModal() {
                       className="w-full border rounded-xl px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-ctp-blue"
                       style={{ borderColor: 'var(--ctp-surface0)', backgroundColor: 'var(--ctp-base)', color: 'var(--ctp-text)' }} />
                     </div>
+                    
+                    <div className="flex items-center justify-between p-3 rounded-xl border mt-2" style={{ borderColor: 'var(--ctp-surface0)', backgroundColor: 'color-mix(in srgb, var(--ctp-surface0) 30%, transparent)' }}>
+                      <div>
+                        <div className="text-sm font-bold text-ctp-text">Auto-Execute Commands</div>
+                        <div className="text-xs text-ctp-subtext0">Run terminal commands without asking for permission</div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" className="sr-only peer" checked={autoExecute} onChange={(e) => setAutoExecute(e.target.checked)} />
+                        <div className="w-11 h-6 bg-ctp-surface1 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-ctp-crust after:border-ctp-surface1 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-ctp-blue"></div>
+                      </label>
+                    </div>
+
                     <button type="submit" className="w-full text-ctp-crust font-bold py-3 rounded-xl shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all mt-4" style={{ backgroundColor: 'var(--ctp-blue)' }}>
                       Save AI Settings
                     </button>
@@ -286,3 +396,4 @@ export default function SettingsModal() {
     </AnimatePresence>
   );
 }
+
