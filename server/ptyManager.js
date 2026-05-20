@@ -391,3 +391,22 @@ export function injectCommand(sessionId, command) {
     session.pty.write(`${command}\r`);
   }
 }
+
+export function getSessionDetails(sessionId) {
+  if (sessions.has(sessionId)) {
+    const session = sessions.get(sessionId);
+    
+    // Strip ANSI escape codes from history for the LLM to read clearly
+    const rawHistory = session.history.join('');
+    const plainTextHistory = rawHistory.replace(/\x1b\[[0-9;]*m/g, '').replace(/\x1b\][^\x07]+\x07/g, '');
+    const recentOutput = plainTextHistory.slice(-2000); // Last 2000 chars
+
+    return {
+      shell: session.pty._file || 'Unknown Shell',
+      pid: session.pty.pid,
+      cwd: session.currentPwd,
+      recentOutput: recentOutput
+    };
+  }
+  return null;
+}

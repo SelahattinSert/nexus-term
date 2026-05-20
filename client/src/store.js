@@ -24,8 +24,8 @@ export const useStore = create(
       isSidebarOpen: false,
       activeSidebarTab: 'explorer', // 'explorer' or 'git' or 'snippets'
 
-      // Theme
-      theme: 'theme-mocha',
+      // Theme (ID from themes.js)
+      theme: 'catppuccin-mocha',
 
       // Snippets
       snippets: [],
@@ -39,6 +39,11 @@ export const useStore = create(
       setTheme: (theme) => set({ theme }),
       isSettingsOpen: false,
       setSettingsOpen: (isOpen) => set({ isSettingsOpen: isOpen }),
+
+      // --- Agent Approval Management ---
+      pendingCommand: null, // { command: string, sessionId: string, actionId: string }
+      setPendingCommand: (cmd) => set({ pendingCommand: cmd }),
+      clearPendingCommand: () => set({ pendingCommand: null }),
 
       // --- Config Management ---
       aiConfig: null,

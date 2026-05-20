@@ -10,7 +10,9 @@ import ErrorBoundary from './components/ErrorBoundary';
 import SystemMonitor from './components/SystemMonitor';
 import VoiceOrb from './components/VoiceOrb/VoiceOrb';
 import SettingsModal from './components/SettingsModal';
+import ApprovalModal from './components/ApprovalModal';
 import { useStore } from './store';
+import { applyTheme } from './themes';
 import { Toaster } from 'sonner';
 
 function App() {
@@ -18,11 +20,58 @@ function App() {
   const focusedPane = useStore(state => state.focusedPane);
   const createSession = useStore(state => state.createSession);
   const theme = useStore(state => state.theme);
+  const setTheme = useStore(state => state.setTheme);
+  const setSettingsOpen = useStore(state => state.setSettingsOpen);
+  const toggleSidebar = useStore(state => state.toggleSidebar);
+  const setActiveSidebarTab = useStore(state => state.setActiveSidebarTab);
+  const isSidebarOpen = useStore(state => state.isSidebarOpen);
+  const removeSession = useStore(state => state.removeSession);
+  const removeEditor = useStore(state => state.removeEditor);
 
   useEffect(() => {
-    // Apply theme to document element
-    document.documentElement.className = theme;
+    // Apply theme via runtime CSS variable injection
+    applyTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    const handleUiAction = (e) => {
+      const action = e.detail;
+      switch(action) {
+        case 'split_horizontal':
+        case 'split_vertical':
+          createSession();
+          break;
+        case 'toggle_file_manager':
+          if (!isSidebarOpen) toggleSidebar();
+          setActiveSidebarTab('explorer');
+          break;
+        case 'open_settings':
+          setSettingsOpen(true);
+          break;
+        case 'toggle_theme':
+          setTheme(theme === 'catppuccin-latte' ? 'catppuccin-mocha' : 'catppuccin-latte');
+          break;
+        case 'close_tab': {
+          const currentId = useStore.getState().focusedPane;
+          if (currentId) {
+            removeSession(currentId);
+            removeEditor(currentId);
+          }
+          break;
+        }
+        case 'clear_terminal': {
+          const activeSessionId = useStore.getState().focusedPane;
+          if (activeSessionId) {
+            window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${activeSessionId}`, { detail: 'clear' }));
+          }
+          break;
+        }
+      }
+    };
+
+    window.addEventListener('nexus-ui-action', handleUiAction);
+    return () => window.removeEventListener('nexus-ui-action', handleUiAction);
+  }, [createSession, toggleSidebar, setActiveSidebarTab, isSidebarOpen, setSettingsOpen, theme, setTheme, removeSession, removeEditor]);
 
   useEffect(() => {
     // Create initial session if none exists
@@ -35,9 +84,8 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <Toaster theme="dark" position="bottom-right" richColors />
-      <div className="flex flex-col w-full h-full bg-ctp-crust text-white">
-        <TabBar />
+      <Toaster theme={theme === 'catppuccin-latte' || theme === 'gruvbox-light' ? 'light' : 'dark'} position="bottom-right" richColors />
+      <div className="flex flex-col w-full h-full bg-ctp-crust text-ctp-text">        <TabBar />
 
         <header className="bg-ctp-mantle text-xs py-1 px-4 flex gap-4 text-ctp-subtext0 border-b border-ctp-surface0 min-h-[24px] items-center shrink-0">
           {focusedSession ? (
@@ -68,6 +116,7 @@ function App() {
         </main>
         <CommandPalette />
         <VoiceOrb />
+        <ApprovalModal />
         <SettingsModal />
       </div>
     </ErrorBoundary>

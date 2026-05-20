@@ -5,12 +5,13 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import { Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useStore } from '../store';
+import { getTerminalTheme } from '../themes';
 import { useTerminalWebsocket } from '../hooks/useTerminalWebsocket';
 import '@xterm/xterm/css/xterm.css';
 
 export default function NexusTerm({ sessionId }) {
   const divRef = useRef(null);
-  const { theme } = useStore();
+  const theme = useStore(state => state.theme);
   const termRef = useRef(null);
   const searchAddonRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -20,27 +21,13 @@ export default function NexusTerm({ sessionId }) {
   const [searchText, setSearchText] = useState('');
   const [termInstance, setTermInstance] = useState(null);
 
-  // Update terminal theme when zustand theme changes
+  // Update terminal theme with full 16 ANSI colors when theme changes
   useEffect(() => {
     if (!termRef.current) return;
-    
-    const applyTheme = () => {
-      const computedStyle = getComputedStyle(document.documentElement);
-      const bg = computedStyle.getPropertyValue('--ctp-base').trim() || '#1e1e2e';
-      const fg = computedStyle.getPropertyValue('--ctp-text').trim() || '#cdd6f4';
-      const cursor = computedStyle.getPropertyValue('--ctp-red').trim() || '#f5e0dc';
-      
-      termRef.current.options.theme = {
-        background: bg,
-        foreground: fg,
-        cursor: cursor,
-        selectionBackground: 'rgba(255, 255, 0, 0.5)',
-        selectionInactiveBackground: 'rgba(255, 255, 0, 0.3)'
-      };
-    };
-
-    const timer = setTimeout(applyTheme, 50);
-    return () => clearTimeout(timer);
+    const termTheme = getTerminalTheme(theme);
+    if (termTheme && Object.keys(termTheme).length > 0) {
+      termRef.current.options.theme = termTheme;
+    }
   }, [theme]);
 
   // Use the custom hook for WebSocket and connection logic
@@ -56,21 +43,10 @@ export default function NexusTerm({ sessionId }) {
       letterSpacing: -0.5,
       cursorBlink: true,
       windowsMode: isWindows,
+      theme: getTerminalTheme(useStore.getState().theme),
     });
     
     termRef.current = term;
-
-    setTimeout(() => {
-      if (!termRef.current) return;
-      const computedStyle = getComputedStyle(document.documentElement);
-      termRef.current.options.theme = {
-        background: computedStyle.getPropertyValue('--ctp-base').trim() || '#1e1e2e',
-        foreground: computedStyle.getPropertyValue('--ctp-text').trim() || '#cdd6f4',
-        cursor: computedStyle.getPropertyValue('--ctp-red').trim() || '#f5e0dc',
-        selectionBackground: 'rgba(255, 255, 0, 0.5)',
-        selectionInactiveBackground: 'rgba(255, 255, 0, 0.3)'
-      };
-    }, 50);
 
     const fitAddon = new FitAddon();
     const webLinksAddon = new WebLinksAddon();

@@ -89,7 +89,7 @@ export default function SnippetsPanel() {
   };
 
   return (
-    <div className="w-64 bg-ctp-mantle border-r border-ctp-surface0 flex flex-col h-full text-sm shrink-0">
+    <div className="w-64 glass-panel-solid rounded-r-xl flex flex-col h-full text-sm shrink-0 shadow-lg">
       <div className="p-3 border-b border-ctp-surface0 flex justify-between items-center text-ctp-text font-medium">
         <span>Saved Snippets</span>
         <div className="flex gap-2">
@@ -116,7 +116,7 @@ export default function SnippetsPanel() {
           </button>
           <button 
             onClick={handleCreate}
-            className="text-ctp-blue hover:text-ctp-lavender transition-colors ml-1"
+            className="text-ctp-blue hover:opacity-80 transition-opacity ml-1"
             title="Create New Snippet"
           >
             <Plus size={18} />
@@ -156,7 +156,7 @@ export default function SnippetsPanel() {
               </div>
               <button 
                 onClick={() => handleRun(snippet.command)}
-                className="w-full flex items-center justify-center gap-2 bg-ctp-blue text-ctp-crust py-1.5 rounded font-medium hover:bg-ctp-lavender transition-colors"
+                className="w-full flex items-center justify-center gap-2 bg-ctp-blue text-ctp-crust py-1.5 rounded font-medium hover:opacity-80 transition-opacity"
               >
                 <Play size={14} /> Run
               </button>
@@ -174,3 +174,4 @@ export default function SnippetsPanel() {
     </div>
   );
 }
+

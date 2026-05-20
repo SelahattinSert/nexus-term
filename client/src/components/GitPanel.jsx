@@ -1,42 +1,73 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useStore } from '../store';
-import { GitBranch, Check, RefreshCw } from 'lucide-react';
+import { GitBranch, GitCommit, GitPullRequest, RefreshCw, Plus, Minus, Check, X, AlertCircle } from 'lucide-react';
+import { nexusFetchJSON } from '../utils/nexusFetch';
+import { toast } from 'sonner';
 
 export default function GitPanel() {
-  const { sessions, focusedPane, isSidebarOpen, activeSidebarTab } = useStore();
-  const focusedSession = sessions.find(s => s.id === focusedPane);
+  const { sessions, focusedPane, isSidebarOpen, activeSidebarTab, addError } = useStore();
+  const [gitStatus, setGitStatus] = useState(null);
   const [isFetching, setIsFetching] = useState(false);
+
+  const focusedSession = sessions.find(s => s.id === focusedPane);
+  const activeTerminal = focusedSession || (sessions.length > 0 ? sessions[sessions.length - 1] : null);
+  const currentPwd = activeTerminal ? activeTerminal.pwd : null;
+
+  const fetchStatus = useCallback(async () => {
+    if (!currentPwd || !isSidebarOpen || activeSidebarTab !== 'git') return;
+    try {
+      const data = await nexusFetchJSON(`/api/git/status?path=${encodeURIComponent(currentPwd)}`);
+      setGitStatus(data);
+    } catch (err) {
+      console.error(err);
+      if (err.category === 'NETWORK' || err.category === 'SERVER') {
+        addError(activeTerminal?.id, {
+          id: 'git_error',
+          title: 'Git Status Failed',
+          description: err.userMessage,
+          category: err.category
+        });
+      }
+    }
+  }, [currentPwd, isSidebarOpen, activeSidebarTab, addError, activeTerminal?.id]);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
 
   if (!isSidebarOpen || activeSidebarTab !== 'git') return null;
 
-  const gitStatus = focusedSession?.gitStatus;
-
   const handleBranchClick = (branch) => {
-    if (!focusedSession || branch === gitStatus.branch) return;
-    // Sanitize branch name to prevent command injection
+    if (!activeTerminal || branch === gitStatus.branch) return;
     const sanitizedBranch = branch.replace(/["'$`\\]/g, '');
-    // Dispatch custom event to NexusTerm to execute checkout
-    window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${focusedSession.id}`, { detail: `git checkout "${sanitizedBranch}"` }));
+    window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${activeTerminal.id}`, { detail: `git checkout "${sanitizedBranch}"` }));
   };
 
-  const handleFetch = () => {
-    if (!focusedSession) return;
+  const handleFetch = async () => {
+    if (!currentPwd || isFetching) return;
     setIsFetching(true);
-    window.dispatchEvent(new CustomEvent(`NEXUS_META_ACTION_${focusedSession.id}`, { detail: { type: 'GIT_FETCH' } }));
-    setTimeout(() => setIsFetching(false), 2000);
+    try {
+      await nexusFetchJSON(`/api/git/fetch?path=${encodeURIComponent(currentPwd)}`, { method: 'POST' });
+      toast.success('Git fetch completed');
+      fetchStatus();
+    } catch (err) {
+      toast.error(err.userMessage || 'Git fetch failed');
+    } finally {
+      setIsFetching(false);
+    }
   };
 
   return (
-    <div className="w-64 flex-shrink-0 bg-ctp-mantle border-r border-ctp-surface0 flex flex-col h-full overflow-hidden text-sm">
-      <div className="p-3 border-b border-ctp-surface0 bg-ctp-crust font-semibold text-ctp-text flex items-center justify-between shrink-0">
+    <div className="w-64 flex-shrink-0 glass-panel-solid rounded-r-xl flex flex-col h-full overflow-hidden text-sm shadow-lg">
+      <div className="p-3 border-b border-ctp-surface0/50 font-semibold text-ctp-text flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <GitBranch size={16} className="text-ctp-blue" />
           <span className="truncate">Source Control</span>
         </div>
         <button 
           onClick={handleFetch} 
-          disabled={!gitStatus || isFetching}
-          className={`p-1 rounded hover:bg-ctp-surface0 transition-colors ${!gitStatus ? 'opacity-50 cursor-not-allowed' : 'text-ctp-subtext0 hover:text-ctp-text'}`}
+          disabled={!gitStatus?.branch || isFetching}
+          className={`p-1 rounded hover:bg-ctp-surface0/50 transition-colors ${!gitStatus?.branch ? 'opacity-50 cursor-not-allowed' : 'text-ctp-subtext0 hover:text-ctp-text'}`}
           title="Fetch from Remote"
         >
           <RefreshCw size={14} className={isFetching ? "animate-spin" : ""} />
@@ -46,7 +77,7 @@ export default function GitPanel() {
       <div className="p-2 overflow-y-auto flex-1 scrollbar-thin">
         {!focusedSession ? (
           <div className="text-[#6c7086] text-xs italic p-4 text-center">Select a terminal</div>
-        ) : !gitStatus ? (
+        ) : !gitStatus?.branch ? (
           <div className="text-[#6c7086] text-xs italic p-4 text-center">Not a git repository</div>
         ) : (
           <div className="flex flex-col gap-4">

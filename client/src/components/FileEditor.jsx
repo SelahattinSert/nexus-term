@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { useStore } from '../store';
+import { getMonacoTheme } from '../themes';
 import { toast } from 'sonner';
 
 export default function FileEditor({ paneId }) {
-  const { editors, updateEditor, theme } = useStore();
+  const { editors, updateEditor } = useStore();
+  const theme = useStore(state => state.theme);
   const editorState = editors.find(e => e.id === paneId);
   const [loading, setLoading] = useState(!!editorState?.path); // Initialize as loading if path exists
   const [initialContent, setInitialContent] = useState('');
@@ -90,7 +92,7 @@ export default function FileEditor({ paneId }) {
   }, [handleSave]);
 
   const filename = editorState?.path ? editorState.path.split(/[/\\]/).pop() : '';
-  const monacoTheme = theme === 'theme-latte' ? 'vs' : 'vs-dark';
+  const monacoTheme = getMonacoTheme(theme);
   const editorPath = editorState?.path || '';
 
   // Memoize the Editor to prevent React re-renders (triggered by isDirty changes)

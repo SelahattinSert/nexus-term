@@ -1,70 +1,203 @@
 import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion as Motion } from 'framer-motion';
-import { X, Settings, Database, Key, Server, Hash } from 'lucide-react';
+import { X, Settings, Database, Key, Server, Hash, Monitor, Palette, TerminalSquare, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useStore } from '../store';
+import { themes, getThemesByCategory, applyTheme } from '../themes';
 import { toast } from 'sonner';
 
 const PROVIDER_DEFAULTS = {
-  openai: {
-    url: 'https://api.openai.com/v1',
-    model: 'gpt-4o-mini'
-  },
-  groq: {
-    url: 'https://api.groq.com/openai/v1',
-    model: 'llama3-70b-8192'
-  },
-  gemini: {
-    url: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-    model: 'gemini-1.5-flash'
-  },
-  ollama: {
-    url: 'http://localhost:11434/v1',
-    model: 'llama3'
-  }
+  openai: { url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  groq: { url: 'https://api.groq.com/openai/v1', model: 'llama3-70b-8192' },
+  gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai/', model: 'gemini-2.5-flash' },       
+  ollama: { url: 'http://localhost:11434/v1', model: 'llama3' }
 };
+
+function MiniVoiceOrb({ isSpeaking, color }) {
+  const status = isSpeaking ? 'speaking' : 'idle';
+  
+  return (
+    <div className="relative flex items-center justify-center w-24 h-24">
+      {/* Wave Rings & Arcs */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div className={`absolute w-full h-full rounded-full border border-ctp-surface1 opacity-20 transition-all duration-1000 ${isSpeaking ? 'scale-110 animate-[pulse_4s_ease-in-out_infinite]' : 'scale-90 opacity-0'}`} />
+        
+        {isSpeaking && (
+          <>
+            <div className="absolute w-20 h-20 rounded-full opacity-20 animate-[ping_2s_infinite]" style={{ backgroundColor: color }} />
+            <div className="absolute w-16 h-16 rounded-full opacity-30 animate-[ping_1.5s_infinite]" style={{ backgroundColor: color, animationDelay: '0.4s' }} />
+          </>
+        )}
+
+        {/* Scaled down SVG arcs */}
+        <div className="absolute inset-[-12px]">
+          <svg className={`w-full h-full ${status === 'speaking' ? 'animate-[spin_3s_linear_infinite]' : 'animate-[spin_8s_linear_infinite]'}`} viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="38" fill="none" stroke={color} strokeWidth="3" strokeDasharray="30 150" className="opacity-80" />
+            <circle cx="50" cy="50" r="38" fill="none" stroke={color} strokeWidth="2" strokeDasharray="15 200" strokeDashoffset="120" className="opacity-90" />
+            <g className={`origin-center ${status === 'speaking' ? 'animate-[spin_4s_linear_reverse_infinite]' : 'animate-[spin_12s_linear_reverse_infinite]'}`}>
+              <circle cx="50" cy="50" r="44" fill="none" stroke={color} strokeWidth="2" strokeDasharray="40 120" className="opacity-50" />
+              <circle cx="50" cy="50" r="44" fill="none" stroke={color} strokeWidth="1" strokeDasharray="10 180" strokeDashoffset="80" className="opacity-70" />
+            </g>
+            <g className="origin-center" style={{ transform: 'rotate(-45deg)' }}>
+              <circle cx="50" cy="50" r="50" fill="none" stroke={color} strokeWidth="0.5" strokeDasharray="80 150" className="opacity-30" />
+              <circle cx="50" cy="50" r="50" fill="none" stroke={color} strokeWidth="1" strokeDasharray="10 200" strokeDashoffset="60" className="opacity-50" />
+            </g>
+          </svg>
+        </div>
+      </div>
+
+      {/* Main Orb */}
+      <div 
+        className={`relative w-14 h-14 rounded-full flex items-center justify-center transition-all duration-500 z-10 shadow-xl ${isSpeaking ? 'scale-105' : ''}`}
+        style={{
+          backgroundColor: 'var(--ctp-crust)',
+          border: `2px solid color-mix(in srgb, ${color} 60%, transparent)`,
+          boxShadow: `0 0 20px color-mix(in srgb, ${color} ${isSpeaking ? '80%' : '20%'}, transparent)`
+        }}
+      >
+        <div className="absolute inset-1.5 rounded-full border border-ctp-surface0 opacity-30" />
+        
+        <div 
+          className={`absolute w-6 h-6 rounded-full blur-md transition-all duration-500 ${isSpeaking ? 'opacity-80 animate-pulse' : 'opacity-10'}`}
+          style={{ backgroundColor: color }}
+        />
+        
+        <div className="relative z-20 pointer-events-none flex items-center justify-center w-full h-full">
+          {isSpeaking ? (
+             <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: color, boxShadow: `0 0 10px ${color}` }} />
+          ) : (
+             <div className="w-2 h-2 rounded-full opacity-50" style={{ backgroundColor: color }} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ThemeCard({ id, themeData, isActive, onSelect, onPreview, onPreviewEnd }) {  const ui = themeData.ui;
+  return (
+    <button
+      onClick={() => onSelect(id)}
+      onMouseEnter={() => onPreview(id)}
+      onMouseLeave={onPreviewEnd}
+      type="button"
+      style={{
+        borderColor: isActive ? ui.blue : ui.surface1,
+        backgroundColor: isActive ? 'color-mix(in srgb, var(--ctp-surface0) 40%, transparent)' : 'transparent',
+      }}
+      className={`group relative flex flex-col gap-1.5 p-2 rounded-lg border transition-all duration-200 text-left ${
+        isActive ? 'ring-1 shadow-md' : 'hover:shadow-sm'
+      }`}
+    >
+      <div className="flex gap-0.5 h-4 rounded overflow-hidden">
+        <div className="flex-1" style={{ background: ui.base }} />
+        <div className="flex-1" style={{ background: ui.surface0 }} />
+        <div className="flex-1" style={{ background: ui.blue }} />
+        <div className="flex-1" style={{ background: ui.green }} />
+        <div className="flex-1" style={{ background: ui.red }} />
+      </div>
+      <div className="flex gap-0.5 h-1.5 rounded-sm overflow-hidden opacity-40">
+        {['black','red','green','yellow','blue'].map(c => (
+          <div key={c} className="flex-1" style={{ background: themeData.terminal[c] }} />
+        ))}
+      </div>
+      <span className="text-[10px] font-medium truncate" style={{ color: ui.text }}>
+        {themeData.name}
+      </span>
+      {isActive && (
+        <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full border" style={{ backgroundColor: ui.blue, borderColor: ui.base }} />
+      )}
+    </button>
+  );
+}
 
 export default function SettingsModal() {
   const isOpen = useStore(state => state.isSettingsOpen);
   const setOpen = useStore(state => state.setSettingsOpen);
   const aiConfig = useStore(state => state.aiConfig);
   const setAiConfig = useStore(state => state.setAiConfig);
+  const theme = useStore(state => state.theme);
+  const setTheme = useStore(state => state.setTheme);
 
+  const [activeTab, setActiveTab] = useState('general');
   const [provider, setProvider] = useState('openai');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
   const [url, setUrl] = useState('');
+  const [autoExecute, setAutoExecute] = useState(false);
+  const [whisperModel, setWhisperModel] = useState('Xenova/whisper-base');
+  const [whisperLanguage, setWhisperLanguage] = useState('auto');
+  const [ttsVoice, setTtsVoice] = useState('');
+  const [availableVoices, setAvailableVoices] = useState([]);
+  const [isPlayingPreview, setIsPlayingPreview] = useState(false);
+  const [themeFilter, setThemeFilter] = useState('all');
 
-  // When config changes or modal opens, initialize state
+  // Load available TTS voices safely
   useEffect(() => {
-    let timer;
-    if (aiConfig && isOpen) {
-      timer = setTimeout(() => {
-        setProvider(aiConfig.provider || 'openai');
-        setApiKey(aiConfig.apiKey || '');
-        setModel(aiConfig.model || PROVIDER_DEFAULTS['openai'].model);
-        setUrl(aiConfig.url || PROVIDER_DEFAULTS['openai'].url);
-      }, 0);
-    } else if (isOpen && !aiConfig) {
-      timer = setTimeout(() => {
-        setProvider('openai');
-        setModel(PROVIDER_DEFAULTS['openai'].model);
-        setUrl(PROVIDER_DEFAULTS['openai'].url);
-        setApiKey('');
+    const loadVoices = () => {
+      if (!window.speechSynthesis) return;
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        // Filter to English and Turkish voices to keep the list clean
+        const filtered = voices.filter(v => v.lang.startsWith('en') || v.lang.startsWith('tr'));
+        setAvailableVoices(filtered);
+      }
+    };
+    
+    loadVoices();
+    if (window.speechSynthesis && window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+  }, []);
+  const [previewTheme, setPreviewTheme] = useState(null);
+  const [savedTheme, setSavedTheme] = useState(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => {
+        setSavedTheme(theme);
+        if (aiConfig) {
+          setProvider(aiConfig.provider || 'openai');
+          setApiKey(aiConfig.apiKey || '');
+          setModel(aiConfig.model || '');
+          setUrl(aiConfig.url || '');
+          setAutoExecute(aiConfig.autoExecute || false);
+          setWhisperModel(aiConfig.whisperModel || 'Xenova/whisper-base');
+          setWhisperLanguage(aiConfig.whisperLanguage || 'auto');
+          setTtsVoice(aiConfig.ttsVoice || '');
+        }
       }, 0);
     }
-    return () => clearTimeout(timer);
-  }, [isOpen, aiConfig]);
+  }, [isOpen, aiConfig, theme]);
 
-  const handleProviderChange = (e) => {
-    const newProvider = e.target.value;
-    setProvider(newProvider);
-    setModel(PROVIDER_DEFAULTS[newProvider]?.model || '');
-    setUrl(PROVIDER_DEFAULTS[newProvider]?.url || '');
+  const handlePreview = (themeId) => {
+    setPreviewTheme(themeId);
+    applyTheme(themeId);
   };
 
-  const handleSave = async (e) => {
+  const handlePreviewEnd = () => {
+    if (previewTheme) {
+      applyTheme(savedTheme || theme);
+      setPreviewTheme(null);
+    }
+  };
+
+  const handleThemeSelect = (themeId) => {
+    setTheme(themeId);
+    setSavedTheme(themeId);
+    applyTheme(themeId);
+    toast.success(`${themes[themeId].name} theme applied`);
+  };
+
+  const handleClose = () => {
+    if (previewTheme || theme !== savedTheme) {
+      applyTheme(savedTheme);
+    }
+    setOpen(false);
+  };
+
+  const handleSaveAI = async (e) => {
     e.preventDefault();
-    const configData = { provider, apiKey, model, url };
+    const configData = { provider, apiKey, model, url, autoExecute, whisperModel, whisperLanguage, ttsVoice };
     try {
       const token = new URLSearchParams(window.location.search).get('token');
       const res = await fetch(`/api/settings?token=${token}`, {
@@ -72,133 +205,248 @@ export default function SettingsModal() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(configData)
       });
-      const data = await res.json();
       if (res.ok) {
         setAiConfig(configData);
-        toast.success('Settings saved successfully');
+        toast.success(activeTab === 'voice' ? 'Voice Settings saved' : 'AI Settings saved');
         setOpen(false);
       } else {
-        toast.error(data.error || 'Failed to save settings');
+        toast.error('Failed to save settings');
       }
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to communicate with server');
+    } catch {
+      toast.error('Network error');
     }
   };
+
+  const { dark, light } = getThemesByCategory();
+  const filteredThemes = themeFilter === 'dark' ? dark : themeFilter === 'light' ? light : [...dark, ...light];
+
+  // Helper logic for voice slider
+  const voiceChoices = [{ voiceURI: '', name: 'System Default', lang: 'Auto' }, ...availableVoices];
+  const currentVoiceIndex = voiceChoices.findIndex(v => v.voiceURI === ttsVoice);
+  const safeVoiceIndex = currentVoiceIndex === -1 ? 0 : currentVoiceIndex;
+  const currentVoiceObj = voiceChoices[safeVoiceIndex];
+
+  const handleVoiceChange = (newIndex) => {
+    const choice = voiceChoices[newIndex];
+    setTtsVoice(choice.voiceURI);
+
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      setIsPlayingPreview(false);
+      if (choice.voiceURI !== '') {
+        const voice = availableVoices.find(v => v.voiceURI === choice.voiceURI);
+        if (voice) {
+          const previewText = voice.lang.startsWith('tr') 
+            ? "Merhaba, sana nasıl yardımcı olabilirim?" 
+            : "Hello, how can I help you today?";
+          const utterance = new SpeechSynthesisUtterance(previewText);
+          utterance.voice = voice;
+          utterance.rate = 1.05;
+          utterance.onstart = () => setIsPlayingPreview(true);
+          utterance.onend = () => setIsPlayingPreview(false);
+          utterance.onerror = () => setIsPlayingPreview(false);
+          window.speechSynthesis.speak(utterance);
+        }
+      }
+    }
+  };
+
+  const nextVoice = () => handleVoiceChange((safeVoiceIndex + 1) % voiceChoices.length);
+  const prevVoice = () => handleVoiceChange((safeVoiceIndex - 1 + voiceChoices.length) % voiceChoices.length);
 
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center">
-          {/* Backdrop */}
-          <Motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setOpen(false)}
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-          />
-
-          {/* Modal */}
-          <Motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-            className="relative w-full max-w-md bg-ctp-base/80 backdrop-blur-md border border-ctp-surface0/50 shadow-2xl rounded-xl overflow-hidden text-ctp-text"
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={handleClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <Motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+            className="relative w-full max-w-2xl shadow-2xl rounded-2xl overflow-hidden text-ctp-text flex h-[540px]"
+            style={{ 
+              backgroundColor: 'color-mix(in srgb, var(--ctp-base) 95%, transparent)',
+              backdropFilter: 'blur(16px)',
+              border: '1px solid color-mix(in srgb, var(--ctp-surface0) 50%, transparent)'
+            }}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-ctp-surface0/50 bg-ctp-crust/50">
-              <div className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-ctp-mauve" />
-                <h2 className="text-lg font-semibold">AI Provider Settings</h2>
+            <div className="w-48 flex flex-col p-4 gap-2 border-r" style={{ backgroundColor: 'color-mix(in srgb, var(--ctp-crust) 60%, transparent)', borderColor: 'var(--ctp-surface0)' }}>
+              <div className="flex items-center gap-2 px-2 mb-6 text-ctp-blue">
+                <Settings size={20} />
+                <span className="font-bold uppercase tracking-widest text-xs">NexusTerm</span>
               </div>
-              <button
-                onClick={() => setOpen(false)}
-                className="p-1 rounded-md hover:bg-ctp-surface0 text-ctp-subtext0 hover:text-ctp-text transition-colors"
+              <button onClick={() => setActiveTab('general')} 
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm font-medium"
+                style={{
+                  backgroundColor: activeTab === 'general' ? 'color-mix(in srgb, var(--ctp-blue) 15%, transparent)' : 'transparent',
+                  color: activeTab === 'general' ? 'var(--ctp-blue)' : 'var(--ctp-subtext0)'
+                }}
               >
-                <X className="w-5 h-5" />
+                <Palette size={18} /> Appearance
               </button>
+              <button onClick={() => setActiveTab('ai')} 
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm font-medium"
+                style={{
+                  backgroundColor: activeTab === 'ai' ? 'color-mix(in srgb, var(--ctp-blue) 15%, transparent)' : 'transparent',
+                  color: activeTab === 'ai' ? 'var(--ctp-blue)' : 'var(--ctp-subtext0)'
+                }}
+              >
+                <Database size={18} /> AI Provider
+              </button>
+              <button onClick={() => setActiveTab('voice')} 
+                className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all text-sm font-medium"
+                style={{
+                  backgroundColor: activeTab === 'voice' ? 'color-mix(in srgb, var(--ctp-blue) 15%, transparent)' : 'transparent',
+                  color: activeTab === 'voice' ? 'var(--ctp-blue)' : 'var(--ctp-subtext0)'
+                }}
+              >
+                <Monitor size={18} /> Voice (STT)
+              </button>
+              </div>
+            <div className="flex-1 flex flex-col" style={{ backgroundColor: 'color-mix(in srgb, var(--ctp-mantle) 40%, transparent)' }}>
+              <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'color-mix(in srgb, var(--ctp-surface0) 50%, transparent)' }}>
+                <h2 className="text-lg font-bold">{activeTab === 'ai' ? 'AI Configuration' : activeTab === 'voice' ? 'Voice (STT) Settings' : 'Appearance'}</h2>
+                <button onClick={handleClose} className="p-1.5 rounded-full hover:bg-ctp-red/10 hover:text-ctp-red transition-colors text-ctp-subtext0"><X size={20} /></button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+                {activeTab === 'general' ? (
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-2 p-1 rounded-lg w-fit border" style={{ backgroundColor: 'color-mix(in srgb, var(--ctp-crust) 60%, transparent)', borderColor: 'color-mix(in srgb, var(--ctp-surface0) 50%, transparent)' }}>
+                      {['all','dark','light'].map(f => (
+                        <button key={f} onClick={() => setThemeFilter(f)} 
+                          className="px-4 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm"
+                          style={{
+                            backgroundColor: themeFilter === f ? 'var(--ctp-blue)' : 'transparent',
+                            color: themeFilter === f ? 'var(--ctp-crust)' : 'var(--ctp-subtext0)'
+                          }}
+                        >
+                          {f.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      {filteredThemes.map(t => (
+                        <ThemeCard key={t.id} id={t.id} themeData={t} isActive={savedTheme === t.id} onSelect={handleThemeSelect} onPreview={handlePreview} onPreviewEnd={handlePreviewEnd} />
+                      ))}
+                    </div>
+                  </div>
+                ) : activeTab === 'voice' ? (
+                  <form onSubmit={handleSaveAI} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Monitor size={14}/> Whisper Model</label>
+                      <select value={whisperModel} onChange={(e) => setWhisperModel(e.target.value)} 
+                      className="w-full border rounded-xl px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-ctp-blue"
+                      style={{ borderColor: 'var(--ctp-surface0)', backgroundColor: 'var(--ctp-base)', color: 'var(--ctp-text)' }}>
+                        <option value="Xenova/whisper-tiny">Tiny (Fastest, Low Accuracy)</option>
+                        <option value="Xenova/whisper-base">Base (Balanced)</option>
+                        <option value="Xenova/whisper-small">Small (Slower, High Accuracy)</option>
+                        <option value="Xenova/whisper-base.en">Base.en (English Only - Very Accurate)</option>
+                        <option value="Xenova/whisper-small.en">Small.en (English Only - Best Accuracy)</option>
+                      </select>
+                      <p className="text-xs text-ctp-subtext0 ml-1 mt-1">If you only speak English, selecting an '.en' model prevents hallucinations.</p>
+                    </div>
+                    <div className="space-y-1.5 mt-4">
+                      <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Hash size={14}/> Forced Language</label>
+                      <select value={whisperLanguage} onChange={(e) => setWhisperLanguage(e.target.value)} 
+                      className="w-full border rounded-xl px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-ctp-blue"
+                      style={{ borderColor: 'var(--ctp-surface0)', backgroundColor: 'var(--ctp-base)', color: 'var(--ctp-text)' }}>
+                        <option value="auto">Auto-Detect Language</option>
+                        <option value="en">English (en)</option>
+                        <option value="tr">Turkish (tr)</option>
+                        <option value="de">German (de)</option>
+                        <option value="fr">French (fr)</option>
+                      </select>
+                      <p className="text-xs text-ctp-subtext0 ml-1 mt-1">Forces Whisper to transcribe in this language. Highly recommended if not using 'Auto'.</p>
+                    </div>
+
+                    <div className="space-y-3 mt-4 pt-4 border-t" style={{ borderColor: 'color-mix(in srgb, var(--ctp-surface0) 50%, transparent)' }}>
+                      <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Monitor size={14}/> Assistant Voice (TTS)</label>
+                      
+                      <div className="flex flex-col items-center justify-center gap-4 py-4 rounded-xl border bg-ctp-mantle/30" style={{ borderColor: 'var(--ctp-surface0)' }}>
+                        <div className="flex items-center justify-center gap-8 w-full px-6">
+                          <button 
+                            type="button" 
+                            onClick={prevVoice}
+                            className="p-2 rounded-full hover:bg-ctp-surface0 transition-colors text-ctp-subtext0 hover:text-ctp-text"
+                          >
+                            <ChevronLeft size={24} />
+                          </button>
+                          
+                          <MiniVoiceOrb isSpeaking={isPlayingPreview} color="var(--ctp-blue)" />
+                          
+                          <button 
+                            type="button" 
+                            onClick={nextVoice}
+                            className="p-2 rounded-full hover:bg-ctp-surface0 transition-colors text-ctp-subtext0 hover:text-ctp-text"
+                          >
+                            <ChevronRight size={24} />
+                          </button>
+                        </div>
+                        
+                        <div className="text-center flex flex-col items-center gap-1">
+                          <span className="text-sm font-bold text-ctp-text">{currentVoiceObj?.name?.split(' - ')[0] || 'System Default'}</span>
+                          <span className="text-[10px] uppercase tracking-widest text-ctp-subtext0">{currentVoiceObj?.lang || 'AUTO'}</span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-ctp-subtext0 ml-1 italic opacity-60 text-center">Use arrows to change the voice. The orb will animate while previewing.</p>
+                    </div>
+
+                    <button type="submit" className="w-full text-ctp-crust font-bold py-3 rounded-xl shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all mt-6" style={{ backgroundColor: 'var(--ctp-blue)' }}>
+                      Save Voice Settings
+                    </button>
+                  </form>
+                ) : (
+                  <form onSubmit={handleSaveAI} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Database size={14}/> Provider</label>
+                      <select value={provider} onChange={(e) => {
+                        const p = e.target.value; setProvider(p);
+                        setUrl(PROVIDER_DEFAULTS[p]?.url || ''); setModel(PROVIDER_DEFAULTS[p]?.model || '');
+                      }} 
+                      className="w-full border rounded-xl px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-ctp-blue text-ctp-text bg-ctp-base"
+                      style={{ borderColor: 'var(--ctp-surface0)' }}>
+                        <option value="openai">OpenAI</option><option value="groq">Groq</option><option value="gemini">Gemini</option><option value="ollama">Ollama</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Key size={14}/> API Key</label>
+                      <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-..." 
+                      className="w-full border rounded-xl px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-ctp-blue text-ctp-text bg-ctp-base placeholder-ctp-surface2"
+                      style={{ borderColor: 'var(--ctp-surface0)' }} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Hash size={14}/> Model Name</label>
+                      <input type="text" value={model} onChange={e => setModel(e.target.value)} 
+                      className="w-full border rounded-xl px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-ctp-blue"
+                      style={{ borderColor: 'var(--ctp-surface0)', backgroundColor: 'var(--ctp-base)', color: 'var(--ctp-text)' }} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Server size={14}/> Base URL</label>
+                      <input type="text" value={url} onChange={e => setUrl(e.target.value)} 
+                      className="w-full border rounded-xl px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-ctp-blue"
+                      style={{ borderColor: 'var(--ctp-surface0)', backgroundColor: 'var(--ctp-base)', color: 'var(--ctp-text)' }} />
+                    </div>
+                    
+                    <div className="flex items-center justify-between p-3 rounded-xl border mt-2" style={{ borderColor: 'var(--ctp-surface0)', backgroundColor: 'color-mix(in srgb, var(--ctp-surface0) 30%, transparent)' }}>
+                      <div>
+                        <div className="text-sm font-bold text-ctp-text">Auto-Execute Commands</div>
+                        <div className="text-xs text-ctp-subtext0">Run terminal commands without asking for permission</div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" className="sr-only peer" checked={autoExecute} onChange={(e) => setAutoExecute(e.target.checked)} />
+                        <div className="w-11 h-6 bg-ctp-surface1 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-ctp-crust after:border-ctp-surface1 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-ctp-blue"></div>
+                      </label>
+                    </div>
+
+                    <button type="submit" className="w-full text-ctp-crust font-bold py-3 rounded-xl shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all mt-4" style={{ backgroundColor: 'var(--ctp-blue)' }}>
+                      Save AI Settings
+                    </button>
+                  </form>
+                )}
+              </div>
             </div>
-
-            {/* Body */}
-            <form onSubmit={handleSave} className="p-6 space-y-4">
-              <div className="space-y-1.5">
-                <label className="flex items-center gap-2 text-sm font-medium text-ctp-subtext0">
-                  <Database className="w-4 h-4" />
-                  Provider
-                </label>
-                <select
-                  value={provider}
-                  onChange={handleProviderChange}
-                  className="w-full bg-ctp-mantle border border-ctp-surface0 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-ctp-mauve focus:ring-1 focus:ring-ctp-mauve transition-all"
-                >
-                  <option value="openai">OpenAI</option>
-                  <option value="groq">Groq</option>
-                  <option value="gemini">Gemini</option>
-                  <option value="ollama">Ollama</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="flex items-center gap-2 text-sm font-medium text-ctp-subtext0">
-                  <Key className="w-4 h-4" />
-                  API Key
-                </label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
-                  placeholder={provider === 'ollama' ? 'Leave empty for Ollama' : 'sk-...'}
-                  className="w-full bg-ctp-mantle border border-ctp-surface0 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-ctp-mauve focus:ring-1 focus:ring-ctp-mauve transition-all placeholder:text-ctp-surface1"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="flex items-center gap-2 text-sm font-medium text-ctp-subtext0">
-                  <Hash className="w-4 h-4" />
-                  Model Name
-                </label>
-                <input
-                  type="text"
-                  value={model}
-                  onChange={e => setModel(e.target.value)}
-                  className="w-full bg-ctp-mantle border border-ctp-surface0 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-ctp-mauve focus:ring-1 focus:ring-ctp-mauve transition-all"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="flex items-center gap-2 text-sm font-medium text-ctp-subtext0">
-                  <Server className="w-4 h-4" />
-                  Base URL
-                </label>
-                <input
-                  type="text"
-                  value={url}
-                  onChange={e => setUrl(e.target.value)}
-                  className="w-full bg-ctp-mantle border border-ctp-surface0 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-ctp-mauve focus:ring-1 focus:ring-ctp-mauve transition-all"
-                />
-              </div>
-
-              {/* Footer */}
-              <div className="pt-4 flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-ctp-subtext0 hover:text-ctp-text transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-sm font-medium bg-ctp-mauve text-ctp-crust rounded-lg hover:bg-ctp-mauve/90 transition-colors shadow-[0_0_15px_rgba(203,166,247,0.3)] hover:shadow-[0_0_20px_rgba(203,166,247,0.5)]"
-                >
-                  Save Configuration
-                </button>
-              </div>
-            </form>
           </Motion.div>
         </div>
       )}
     </AnimatePresence>
   );
 }
+

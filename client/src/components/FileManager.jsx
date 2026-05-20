@@ -1,54 +1,33 @@
 import React, { useEffect, useState } from 'react';
-import { useStore } from '../store';
 import { Folder, File, FolderOpen, AlertCircle, CornerLeftUp } from 'lucide-react';
+import { useStore } from '../store';
+import { nexusFetchJSON } from '../utils/nexusFetch';
 
 export default function FileManager() {
-  const { sessions, focusedPane, isSidebarOpen, activeSidebarTab, createEditor } = useStore();
+  const { sessions, focusedPane, isSidebarOpen, activeSidebarTab, createEditor, addError } = useStore();
   const [files, setFiles] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // If focused pane is a terminal, use its pwd.
-  // If focused pane is an editor, we can try to use the pwd of the first terminal session
-  // or track a "last active terminal" so the file manager doesn't just disappear.
+  // Determine active terminal context for file browsing
   const focusedSession = sessions.find(s => s.id === focusedPane);
   const activeTerminal = focusedSession || (sessions.length > 0 ? sessions[sessions.length - 1] : null);
   const currentPwd = activeTerminal ? activeTerminal.pwd : null;
 
   useEffect(() => {
-    if (!isSidebarOpen || !currentPwd) return;
-
-    const token = new URLSearchParams(window.location.search).get('token');
-    if (!token) return;
+    if (!isSidebarOpen || !currentPwd || activeSidebarTab !== 'explorer') return;
 
     let isMounted = true;
-    
-    // Use a small delay to avoid synchronous setState in effect warning
-    const timeoutId = setTimeout(() => {
-      if (isMounted) {
-        setLoading(true);
-        setError(null);
-      }
+    setTimeout(() => {
+      setLoading(true);
+      setError(null);
     }, 0);
 
-    // Dynamic API URL depending on the environment
-    const apiUrl = import.meta.env.DEV ? 'http://127.0.0.1:4000' : '';
-
-    fetch(`${apiUrl}/api/files?path=${encodeURIComponent(currentPwd)}&token=${token}`)
-      .then(res => {
-        if (!res.ok) {
-          if (res.status === 403) throw new Error('Forbidden: Cannot navigate outside of root.');
-          throw new Error('Failed to fetch files');
-        }
-        return res.json();
-      })
+    nexusFetchJSON(`/api/files?path=${encodeURIComponent(currentPwd)}`)
       .then(data => {
         if (isMounted) {
-          // Sort directories first, then files, alphabetically
           const sorted = data.sort((a, b) => {
-            if (a.isDir === b.isDir) {
-              return a.name.localeCompare(b.name);
-            }
+            if (a.isDir === b.isDir) return a.name.localeCompare(b.name);
             return a.isDir ? -1 : 1;
           });
           setFiles(sorted);
@@ -57,86 +36,94 @@ export default function FileManager() {
       })
       .catch(err => {
         if (isMounted) {
-          setError(err.message);
+          const msg = err.userMessage || err.message;
+          setError(msg);
           setLoading(false);
+          if (err.category === 'NETWORK' || err.category === 'SERVER') {
+            addError(activeTerminal?.id, {
+              id: 'fs_error',
+              title: 'File System Error',
+              description: msg,
+              category: err.category
+            });
+          }
         }
       });
 
-    return () => {
-      isMounted = false;
-      clearTimeout(timeoutId);
-    };
-  }, [currentPwd, isSidebarOpen, activeSidebarTab]);
+    return () => { isMounted = false; };
+  }, [currentPwd, isSidebarOpen, activeSidebarTab, addError, activeTerminal?.id]);
 
   if (!isSidebarOpen || activeSidebarTab !== 'explorer') return null;
 
-  const handleDoubleClick = (file) => {
-    if (!activeTerminal) return;
-    
-    if (file.isDir) {
-      const sanitizedName = file.name.replace(/["'$`\\]/g, '');
-      window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${activeTerminal.id}`, { detail: `cd "${sanitizedName}"` }));
-    } else {
-      const fullPath = currentPwd.endsWith('/') || currentPwd.endsWith('\\') 
-        ? `${currentPwd}${file.name}` 
-        : `${currentPwd}/${file.name}`;
-      createEditor(fullPath);
+  const navigateUp = () => {
+    if (!currentPwd || !activeTerminal) return;
+    const parts = currentPwd.split(/[/\\]/).filter(Boolean);
+    if (parts.length > 0) {
+      parts.pop();
+      const parent = parts.length === 0 ? (currentPwd.startsWith('/') ? '/' : '') : parts.join('/');
+      window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${activeTerminal.id}`, { detail: `cd "${parent || '/'}"` }));
     }
   };
 
-  const handleGoBack = () => {
-    if (!activeTerminal) return;
-    window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${activeTerminal.id}`, { detail: `cd ..` }));
+  const handleFileClick = (file) => {
+    if (file.isDir) {
+      window.dispatchEvent(new CustomEvent(`NEXUS_ACTION_${activeTerminal.id}`, { detail: `cd "${file.path}"` }));
+    } else {
+      createEditor(file.path);
+    }
   };
 
   return (
-    <div className="w-64 flex-shrink-0 bg-ctp-mantle border-r border-ctp-surface0 flex flex-col h-full overflow-hidden text-sm">
-      <div className="p-3 border-b border-ctp-surface0 bg-ctp-crust font-semibold text-ctp-text flex items-center gap-2 shrink-0">
+    <div className="w-64 flex-shrink-0 glass-panel-solid rounded-r-xl flex flex-col h-full overflow-hidden text-sm shadow-lg">
+      <div className="p-3 border-b border-ctp-surface0/50 font-semibold text-ctp-text flex items-center gap-2 shrink-0">
         <FolderOpen size={16} className="text-ctp-blue" />
         <span className="truncate">Explorer</span>
       </div>
-      
-      <div className="p-2 overflow-y-auto flex-1 scrollbar-thin">
-        {!activeTerminal ? (
-          <div className="text-[#6c7086] text-xs italic p-4 text-center">Select a terminal to view files</div>
-        ) : loading ? (
-          <div className="text-ctp-subtext0 text-xs p-4 text-center animate-pulse">Loading files...</div>
+
+      <div className="flex-1 overflow-y-auto p-2 scrollbar-thin">
+        {loading && files.length === 0 ? (
+          <div className="flex justify-center py-4">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-ctp-blue"></div>
+          </div>
         ) : error ? (
-          <div className="text-ctp-red text-xs p-3 bg-ctp-surface0 rounded flex gap-2 items-start break-words">
-            <AlertCircle size={14} className="shrink-0 mt-0.5" />
-            <span>{error}</span>
+          <div className="p-3 text-ctp-red flex flex-col items-center gap-2 text-center">
+            <AlertCircle size={24} className="opacity-50" />
+            <p>{error}</p>
           </div>
         ) : (
-          <ul className="space-y-0.5">
-            <li 
-              onClick={handleGoBack}
-              className="flex items-center gap-2 px-2 py-1.5 hover:bg-ctp-surface0 rounded cursor-pointer text-ctp-text transition-colors select-none"
-              title="Go Back"
+          <div className="flex flex-col gap-0.5">
+            <button
+              onClick={navigateUp}
+              className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-ctp-surface0/50 text-ctp-subtext0 transition-colors group"
             >
-              <CornerLeftUp size={14} className="text-ctp-blue shrink-0" />
-              <span className="truncate text-xs italic">.. (Go Back)</span>
-            </li>
-            {files.map((file, idx) => (
-              <li 
-                key={idx} 
-                onDoubleClick={() => handleDoubleClick(file)}
-                className="flex items-center gap-2 px-2 py-1.5 hover:bg-ctp-surface0 rounded cursor-pointer text-ctp-text transition-colors select-none"
-                title={file.name}
+              <CornerLeftUp size={16} className="group-hover:text-ctp-blue transition-colors" />
+              <span>..</span>
+            </button>
+            {files.map((file) => (
+              <button
+                key={file.path}
+                onClick={() => handleFileClick(file)}
+                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-ctp-surface0/50 text-ctp-text transition-colors group text-left"
               >
                 {file.isDir ? (
-                  <Folder size={14} className="text-ctp-blue shrink-0" fill="currentColor" fillOpacity={0.2} />
+                  <Folder size={16} className="text-ctp-blue opacity-80 group-hover:opacity-100" />
                 ) : (
-                  <File size={14} className="text-ctp-subtext0 shrink-0" />
+                  <File size={16} className="text-ctp-subtext1 opacity-70 group-hover:opacity-100" />
                 )}
-                <span className="truncate text-xs">{file.name}</span>
-              </li>
+                <span className="truncate">{file.name}</span>
+              </button>
             ))}
-            {files.length === 0 && (
-              <div className="text-[#6c7086] text-xs italic p-4 text-center">Directory is empty</div>
-            )}
-          </ul>
+          </div>
         )}
       </div>
+
+      {currentPwd && (
+        <div className="p-2 border-t border-ctp-surface0/30 bg-ctp-crust/20">
+          <div className="text-[10px] text-ctp-surface2 font-mono truncate" title={currentPwd}>
+            {currentPwd}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
