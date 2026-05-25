@@ -120,6 +120,20 @@ export async function resolveIntent(text, sessionId) {
       contextStr += `\n*Note: Use the terminal output above to answer user questions about what happened, what failed, or what is currently on the screen. Treat it as your eyes.*`;
     }
   }
+
+  // Inject SSH Profiles
+  try {
+    const { getProfiles } = await import('./sshService.js');
+    const sshProfiles = await getProfiles();
+    if (sshProfiles.length > 0) {
+      contextStr += "\n\n## 🌐 Available SSH Connections\n" + sshProfiles.map(p => 
+        `- "${p.name}": ${p.username}@${p.host} (tags: ${p.tags ? p.tags.join(', ') : 'none'})`
+      ).join("\n") + "\n\n" +
+      "To connect to an SSH server, use `execute_ui_action` with `action: 'ssh_connect||[PROFILE_NAME]'`. For example: `{\"type\": \"execute_ui_action\", \"action\": \"ssh_connect||Production API\"}`. The frontend will intercept this and establish the connection.";
+    }
+  } catch (err) {
+    console.error('[Voice API] Could not load SSH profiles into prompt:', err.message);
+  }
   
   const systemPrompt = persona + contextStr;
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useStore } from '../store';
-import { Files, GitBranch, Star, Settings } from 'lucide-react';
+import { Files, GitBranch, Star, Settings, Server } from 'lucide-react';
 
 export default function ActivityBar() {
   const { isSidebarOpen, activeSidebarTab, setActiveSidebarTab, toggleSidebar, setSettingsOpen } = useStore();
@@ -14,7 +14,7 @@ export default function ActivityBar() {
   };
 
   return (
-    <div className="w-12 flex-shrink-0 bg-ctp-crust border-r border-ctp-surface0 flex flex-col items-center py-2 h-full justify-between">
+    <div className="w-12 flex-shrink-0 bg-ctp-crust border-r border-ctp-surface0 flex flex-col items-center py-2 h-full justify-between z-10 relative">
       <div className="flex flex-col gap-4 items-center">
         <button 
           onClick={() => handleTabClick('explorer')}
@@ -22,6 +22,13 @@ export default function ActivityBar() {
           className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'explorer' && isSidebarOpen ? 'text-ctp-blue' : 'text-[#6c7086] hover:text-ctp-text'}`}
         >
           <Files size={24} strokeWidth={1.5} />
+        </button>
+        <button 
+          onClick={() => handleTabClick('ssh')}
+          title="SSH Connections"
+          className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'ssh' && isSidebarOpen ? 'text-ctp-green' : 'text-[#6c7086] hover:text-ctp-green'}`}
+        >
+          <Server size={24} strokeWidth={1.5} />
         </button>
         <button 
           onClick={() => handleTabClick('git')}
