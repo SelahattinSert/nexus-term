@@ -4,6 +4,28 @@ import { useAudioCapture } from './useAudioCapture';
 import { useStore } from '../../store';
 import { motion as Motion } from 'framer-motion';
 
+function TypewriterText({ text }) {
+  const [displayedText, setDisplayedText] = useState('');
+
+  useEffect(() => {
+    setDisplayedText('');
+    if (!text) return;
+
+    let i = 0;
+    const intervalId = setInterval(() => {
+      setDisplayedText(text.slice(0, i + 1));
+      i++;
+      if (i >= text.length) {
+        clearInterval(intervalId);
+      }
+    }, 25); // Speed of typewriter (25ms per character)
+
+    return () => clearInterval(intervalId);
+  }, [text]);
+
+  return <span>{displayedText}</span>;
+}
+
 export default function VoiceOrb() {
   const [status, setStatus] = useState('unconfigured'); // unconfigured, idle, listening, thinking, speaking
   const [lastText, setLastText] = useState('');
@@ -125,6 +147,8 @@ export default function VoiceOrb() {
     if (data.action) {
       const actions = data.action.type === 'multi_action' ? data.action.actions : [data.action];
       let responseToSpeak = "";
+      let executedCommands = [];
+      let rejectedReason = null;
       
       for (const action of actions) {
         if (action.type === 'execute_terminal_command') {
@@ -144,16 +168,13 @@ export default function VoiceOrb() {
             // Wait for terminal to process and output
             setStatus('listening'); // Pulse to show it's reading
             await new Promise(r => setTimeout(r, 2000));
-            
-            // ReAct Loop: Tell backend the command finished so it can read the context again
-            processReActLoop(`System Note: The command '${action.command}' was executed. Read the terminal output and decide if you need to run another command to complete the user's request, or use text_response to finish.`);
+            executedCommands.push(action.command);
           };
 
           if (aiConfig?.autoExecute) {
             await executeCommand();
           } else {
             // Ask for permission via Zustand store -> ApprovalModal
-            // ESLint complains about Date.now() here, so we use a safer UUID generation approach.
             const actionId = window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `action-${new Date().getTime()}`;
             useStore.getState().setPendingCommand({
               command: action.command,
@@ -176,7 +197,8 @@ export default function VoiceOrb() {
               await executeCommand();
             } else {
               setLastText("Command rejected.");
-              processReActLoop(resolution.reason);
+              rejectedReason = resolution.reason;
+              break; // Halt the execution chain if user rejects
             }
           }
         } else if (action.type === 'execute_ui_action' || action.action) {
@@ -189,7 +211,12 @@ export default function VoiceOrb() {
         }
       }
       
-      if (responseToSpeak) {
+      // ReAct Loop Orchestration
+      if (rejectedReason) {
+        processReActLoop(rejectedReason);
+      } else if (executedCommands.length > 0) {
+        processReActLoop(`System Note: The following commands were executed: [${executedCommands.join(', ')}]. Read the terminal output and decide if you need to run another command to complete the user's request, or use text_response to finish.`);
+      } else if (responseToSpeak) {
         speak(responseToSpeak);
       } else {
         if (status !== 'listening' && status !== 'thinking') {
@@ -344,9 +371,10 @@ export default function VoiceOrb() {
             )}
           </div>
 
-          {/* Subtitles / Text Box */}          {lastText && (
+          {/* Subtitles / Text Box */}
+          {lastText && (
             <div 
-              className="absolute bottom-24 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap shadow-2xl border transition-all animate-in fade-in slide-in-from-bottom-2 pointer-events-none" 
+              className="absolute bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-xl text-sm font-medium shadow-2xl border transition-all animate-in fade-in slide-in-from-bottom-2 pointer-events-none whitespace-normal break-words w-72 md:w-96 text-center leading-relaxed" 
               style={{ 
                 backgroundColor: 'color-mix(in srgb, var(--ctp-mantle) 85%, transparent)', 
                 color: 'var(--ctp-text)', 
@@ -354,7 +382,7 @@ export default function VoiceOrb() {
                 backdropFilter: 'blur(12px)'
               }}
             >
-              {lastText}
+              <TypewriterText text={lastText} />
               {/* Little pointer triangle */}
               <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 rotate-45 border-r border-b" 
                 style={{ 

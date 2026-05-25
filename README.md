@@ -1,33 +1,46 @@
 # 🚀 NexusTerm
 
-**NexusTerm** is an open-source, browser-native terminal emulator that transforms your local shell (Bash, Zsh, PowerShell) into a modern, smart, and visually rich web interface.
+**NexusTerm** is an open-source, browser-native terminal emulator that transforms your local shell (Bash, Zsh, PowerShell) into a modern, smart, and visually rich web interface. 
 
-Built with **React**, **Node.js**, and **xterm.js**, NexusTerm bridges the gap between the power of the command line and the visual flexibility of modern web tools—without the weight of Electron or the privacy concerns of telemetry.
+It is not just a terminal; it is an **Autonomous AI-Driven Development Environment**. Powered by a local ReAct (Reason & Act) loop, NexusTerm acts as your personal AI assistant—executing commands, reading terminal output, handling errors, and chaining actions together until your goal is achieved.
 
 ---
 
 ## ✨ Key Features
 
-*   **🌐 Browser-Native:** No desktop app installation required. Access your terminal from any modern browser.
-*   **🎙️ Smart Voice Assistant (VoiceOrb):** Control your terminal and UI with natural language. Powered by **local Whisper STT** (Free & Private) and your choice of LLM provider (Gemini, Groq, OpenAI, Ollama). 
-*   **🎨 Dynamic Theme Engine (30+ Themes):** Choose from a curated library of over 30 professional themes (Dracula, Nord, Tokyo Night, Catppuccin, etc.) with full 16-color ANSI support and real-time syncing.
-*   **🧩 HUD & Glassmorphism UI:** A sleek, futuristic interface featuring floating panels, backdrop-blur effects, and smooth animations using Framer Motion.
-*   **🧩 Smart Grid Layout & Draggable Panes:** Manage multiple terminals simultaneously with split-pane views. Fluidly resize panes with mouse dragging (`react-resizable-panels`) and swap tabs easily.
-*   **📝 Built-in Code Editor (Monaco):** Double-click files to open them in a fully featured, IDE-like Monaco editor right next to your terminal. Includes `Ctrl+S` auto-save.
-*   **🔄 Seamless Reconnection:** Your sessions persist through page refreshes and temporary network drops.
-*   **🌿 Source Control (Git Panel):** VS Code-style Git sidebar. View local/remote branches, one-click checkout, and see real-time added, modified, and deleted files.
-*   **📁 File Explorer:** A collapsible sidebar that automatically syncs with the active terminal's current working directory.
-*   **🔍 Terminal Search:** Press `Ctrl+F` for an integrated search overlay with incremental highlighting.
-*   **💻 System Monitor:** Real-time CPU and RAM usage tracker elegantly displayed in the header.
-*   **🛠️ Visual CLI Builder & Snippets:** Construct complex CLI commands via an intuitive UI, save them, import/export them as JSON, and execute them with a single click.
-*   **⌨️ Command Palette:** Press `Ctrl+P` (or `Cmd+P`) to quickly run saved snippets, change themes, open new sessions, or toggle the UI layout.
+### 🧠 Autonomous AI Agent (ReAct Loop)
+- **True Autonomy:** Tell the assistant what you want (e.g., "Find the bug in this React project and fix it"). The AI will execute a command, read the terminal output, reason about the errors, and continuously execute new commands until the job is done.
+- **Smart Context:** The AI can "see" your terminal screen. You can ask it to explain errors currently visible in the log, and it will analyze them in real-time.
+
+### 🛡️ Advanced Approval System
+- **Secure Execution:** Before any destructive or system-altering command is executed, a glassmorphic **Permission Required** card intercepts the action.
+- **Feedback Loop:** Don't like the AI's proposed command? Use the **Reject with Feedback** option. Tell the AI *why* you rejected it (e.g., "Use yarn instead of npm"), and it will instantly rethink and propose a new approach.
+- **Auto-Pilot Mode:** Toggle "Auto-Execute Commands" in the settings to let the AI fly solo without asking for permission.
+
+### 🎙️ Interactive VoiceOrb & Voice Gallery
+- **The Void Orb:** A draggable, physics-enabled (Framer Motion) floating orb that acts as your AI's core. It pulses, spins, and reacts to speech with multi-layered SVG animations.
+- **Local STT & TTS:** Powered by local Whisper STT (Xenova Transformers) for flawless, free, and private speech-to-text. It responds using your browser's native Text-to-Speech.
+- **Modern Voice Gallery:** A sleek, centralized settings carousel to select your assistant's voice, featuring interactive waveform visualizers and instant audio previews.
+
+### 🎨 Futuristic UI & Experience
+- **Dynamic Theme Engine:** Over 30 curated themes (Dracula, Tokyo Night, Catppuccin, Hacker Red, etc.) applied seamlessly across the entire UI and terminal.
+- **Glassmorphism:** A HUD-like interface with floating panels, backdrop-blur effects, and smooth transitions.
+- **Smart Grid Layout:** Manage multiple terminals simultaneously with fluidly resizable split-pane views (`react-resizable-panels`).
+
+### 🛠️ Developer Productivity Tools
+- **Built-in Code Editor (Monaco):** Double-click files in the explorer to open them in a fully featured, IDE-like Monaco editor right next to your terminal.
+- **Visual CLI Builder & Snippets:** Construct complex commands via UI, save them, and execute them with a single click.
+- **Source Control (Git Panel):** VS Code-style sidebar. View local/remote branches, stage files, and see real-time diffs.
+- **Command Palette:** Press `Ctrl+P` (or `Cmd+P`) to quickly run saved snippets, change themes, or open new sessions.
+- **System Monitor:** Real-time CPU and RAM usage tracker elegantly displayed in the header.
 
 ---
 
 ## 🛠️ Tech Stack
 
 - **Frontend:** React, Zustand, TailwindCSS, xterm.js, Framer Motion, Lucide Icons
-- **Backend:** Node.js, WebSocket (ws), node-pty, Xenova Transformers (Local Whisper STT)
+- **Backend:** Node.js, Express, WebSocket (ws), node-pty, Xenova Transformers (Whisper)
+- **AI Integration:** Bring your own API key (Groq, Gemini, OpenAI, Ollama)
 - **Platform Support:** Windows, macOS, Linux
 
 ---
@@ -55,7 +68,7 @@ Built with **React**, **Node.js**, and **xterm.js**, NexusTerm bridges the gap b
     ```
 
 4.  **Configuration:**
-    Open the settings icon in the bottom-left sidebar to configure your AI Provider (Gemini, Groq, etc.) to enable the voice assistant.
+    Open the settings icon in the bottom-left sidebar, go to the **AI Provider** tab to enter your API key, and head to the **Voice (STT)** tab to pick your assistant's voice!
 
 ---
 
