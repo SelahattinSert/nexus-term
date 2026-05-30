@@ -58,5 +58,43 @@ export const voiceFunctionSchemas = [
         required: ['response']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ssh_connect',
+      description: 'Connects to a saved SSH profile and opens a new terminal tab.',
+      parameters: {
+        type: 'object',
+        properties: {
+          profile_name: {
+            type: 'string',
+            description: 'The exact name of the SSH profile to connect to.'
+          }
+        },
+        required: ['profile_name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'ssh_run_on',
+      description: 'Connects to an SSH profile (if not already connected) and runs a command on the remote server.',
+      parameters: {
+        type: 'object',
+        properties: {
+          profile_name: {
+            type: 'string',
+            description: 'The exact name of the SSH profile to run the command on.'
+          },
+          command: {
+            type: 'string',
+            description: 'The raw bash command to execute on the remote server.'
+          }
+        },
+        required: ['profile_name', 'command']
+      }
+    }
   }
 ];

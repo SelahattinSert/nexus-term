@@ -1,9 +1,12 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { createSshSlice } from './store/sshStore';
 
 export const useStore = create(
   persist(
-    (set) => ({
+    (set, get) => ({
+      ...createSshSlice(set, get),
+
       // Array of all sessions (background and visible)
       // session: { id: string, pwd: string, gitStatus: { branch, changedFiles } | null }
       sessions: [],
@@ -115,7 +118,14 @@ export const useStore = create(
 
       createSession: (options = {}) => set((state) => {
         const newId = options.id || crypto.randomUUID();
-        const newSession = { id: newId, pwd: '~', gitStatus: null };
+        const newSession = { 
+          id: newId, 
+          pwd: '~', 
+          gitStatus: null,
+          name: options.name || null,
+          isSsh: options.isSsh || false,
+          sshProfileId: options.sshProfileId || null 
+        };
         
         // If we have less than 4 visible panes, show it immediately, else add to background
         const newPanes = state.panes.length < 4 ? [...state.panes, newId] : state.panes;

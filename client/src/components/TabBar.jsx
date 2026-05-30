@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
-import { Plus, X, ChevronDown, Terminal, TerminalSquare, FileCode } from 'lucide-react';
+import { Plus, X, ChevronDown, Terminal, TerminalSquare, FileCode, Server } from 'lucide-react';
 
 export default function TabBar() {
   const { sessions, editors = [], panes, focusedPane, setFocusedPane, createSession, removeSession, removeEditor, swapPane, addPane } = useStore();
@@ -58,7 +58,7 @@ export default function TabBar() {
           const isSession = sessions.find(s => s.id === id);
           const isEditor = editors.find(e => e.id === id);
           const active = focusedPane === id;
-          const label = isSession ? `Terminal ${id.slice(-4)}` : (isEditor?.path?.split(/[/\\]/).pop() || 'Editor');
+          const label = isSession ? (isSession.name || `Terminal ${id.slice(-4)}`) : (isEditor?.path?.split(/[/\\]/).pop() || 'Editor');
           
           return (
             <div
@@ -71,7 +71,7 @@ export default function TabBar() {
               }`}
             >
               <div className="flex items-center gap-2 overflow-hidden">
-                {isSession ? <TerminalSquare size={14} className={`shrink-0 ${active ? "text-ctp-blue" : "text-ctp-surface2"}`} /> : <FileCode size={14} className={`shrink-0 ${active ? "text-ctp-peach" : "text-ctp-surface2"}`} />}
+                {isSession?.isSsh ? <Server size={14} className={`shrink-0 ${active ? "text-ctp-green" : "text-ctp-surface2"}`} /> : isSession ? <TerminalSquare size={14} className={`shrink-0 ${active ? "text-ctp-blue" : "text-ctp-surface2"}`} /> : <FileCode size={14} className={`shrink-0 ${active ? "text-ctp-peach" : "text-ctp-surface2"}`} />}
                 <span className="truncate">{label}</span>
               </div>
               <button 

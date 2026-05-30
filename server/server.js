@@ -41,9 +41,11 @@ function requireToken(req, res, next) {
 // --- Terminal API ---
 import voiceRoute from './routes/voice.js';
 import settingsRoute from './routes/settings.js';
+import sshRoute from './routes/ssh.js';
 
 app.use('/api/voice', requireToken, voiceRoute);
 app.use('/api/settings', requireToken, settingsRoute);
+app.use('/api/ssh', requireToken, sshRoute);
 
 app.get('/api/shells', requireToken, (req, res) => {
   const shells = getAvailableShells();
@@ -51,10 +53,10 @@ app.get('/api/shells', requireToken, (req, res) => {
 });
 
 app.post('/api/terminals', requireToken, (req, res) => {
-  const { sessionId, shell } = req.body;
+  const { sessionId, shell, sshProfile } = req.body;
   if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
   
-  createTerminal(sessionId, { shell });
+  createTerminal(sessionId, { shell, sshProfile });
   res.json({ success: true, sessionId });
 });
 

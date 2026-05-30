@@ -5,6 +5,8 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { getSystemExecutables } from './pathScanner.js';
 import { getGitStatus, fetchAndGetGitStatus } from './gitMonitor.js';
+import { Client } from 'ssh2';
+import { buildSshConfig } from './services/sshService.js';
 
 // ========================
 // PROTOCOL CONSTANTS
@@ -17,6 +19,67 @@ const META = (obj) => 'NEXUS_META:' + JSON.stringify(obj);
 const CMD_PREFIX = 'NEXUS_CMD:';
 
 const sessions = new Map(); // sessionId -> { pty, ws, timeout, currentPwd }
+
+class SshPtyWrapper {
+  constructor(profile, cols, rows) {
+    this._file = 'SSH';
+    this.pid = 'Remote';
+    this.conn = new Client();
+    this.stream = null;
+    this.listeners = [];
+    this._connect(profile, cols, rows);
+  }
+
+  _connect(profile, cols, rows) {
+    this.conn.on('ready', () => {
+      this.conn.shell({ term: 'xterm-256color', cols, rows }, (err, stream) => {
+        if (err) {
+          this._emitData(`\r\n\x1b[31m[SSH] Failed to start shell: ${err.message}\x1b[0m\r\n`);
+          return;
+        }
+        this.stream = stream;
+        this._emitData(`\r\n\x1b[32m[SSH] Connected to ${profile.username}@${profile.host}\x1b[0m\r\n`);
+        
+        stream.on('data', (d) => this._emitData(d.toString()));
+        stream.on('close', () => {
+          this._emitData('\r\n\x1b[33m[SSH] Connection closed by remote host.\x1b[0m\r\n');
+          this.conn.end();
+        });
+      });
+    }).on('error', (err) => {
+      this._emitData(`\r\n\x1b[31m[SSH] Connection Error: ${err.message}\x1b[0m\r\n`);
+    });
+
+    try {
+      const config = buildSshConfig(profile);
+      this.conn.connect(config);
+    } catch (err) {
+      this._emitData(`\r\n\x1b[31m[SSH] Config Error: ${err.message}\x1b[0m\r\n`);
+    }
+  }
+
+  onData(cb) {
+    this.listeners.push(cb);
+    return { dispose: () => { this.listeners = this.listeners.filter(l => l !== cb); } };
+  }
+
+  _emitData(data) {
+    this.listeners.forEach(cb => cb(data));
+  }
+
+  write(data) {
+    if (this.stream) this.stream.write(data);
+  }
+
+  resize(cols, rows) {
+    if (this.stream) this.stream.setWindow(rows, cols, 0, 0);
+  }
+
+  kill() {
+    if (this.stream) this.stream.close();
+    this.conn.end();
+  }
+}
 
 export function getAvailableShells() {
   const shells = [];
@@ -57,18 +120,25 @@ export function createTerminal(sessionId, options = {}) {
     return sessions.get(sessionId).pty;
   }
 
-  const platform = os.platform();
-  const shell = options.shell || (platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'bash'));
+  let ptyProcess;
+  const cols = options.cols || 80;
+  const rows = options.rows || 24;
 
-  const { shellArgs, shellEnv } = buildShellConfig(shell, platform);
+  if (options.sshProfile) {
+    ptyProcess = new SshPtyWrapper(options.sshProfile, cols, rows);
+  } else {
+    const platform = os.platform();
+    const shell = options.shell || (platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'bash'));
+    const { shellArgs, shellEnv } = buildShellConfig(shell, platform);
 
-  const ptyProcess = pty.spawn(shell, shellArgs, {
-    name: 'xterm-256color',
-    cols: options.cols || 80,
-    rows: options.rows || 24,
-    cwd: options.cwd || process.env.HOME || process.env.USERPROFILE || process.cwd(),
-    env: shellEnv,
-  });
+    ptyProcess = pty.spawn(shell, shellArgs, {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd: options.cwd || process.env.HOME || process.env.USERPROFILE || process.cwd(),
+      env: shellEnv,
+    });
+  }
 
   const session = {
     pty: ptyProcess,

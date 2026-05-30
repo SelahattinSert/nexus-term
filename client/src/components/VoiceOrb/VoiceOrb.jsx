@@ -201,6 +201,63 @@ export default function VoiceOrb() {
               break; // Halt the execution chain if user rejects
             }
           }
+        } else if (action.type === 'ssh_connect') {
+          const store = useStore.getState();
+          const profile = store.sshProfiles.find(p => p.name.toLowerCase() === action.profile_name.toLowerCase());
+          if (profile) {
+            setLastText(`Connecting to ${profile.name}...`);
+            try {
+              await store.connectToSshProfile(profile.id);
+              store.setActiveSidebarTab('ssh');
+              executedCommands.push(`ssh_connect to ${profile.name}`);
+            } catch (err) {
+              setLastText(`Failed to connect: ${err.message}`);
+              rejectedReason = `System Error: Failed to connect to SSH profile '${profile.name}'. Error: ${err.message}`;
+              break;
+            }
+          } else {
+            setLastText(`SSH profile '${action.profile_name}' not found.`);
+            rejectedReason = `System Error: SSH profile '${action.profile_name}' not found.`;
+            break;
+          }
+        } else if (action.type === 'ssh_run_on') {
+          const store = useStore.getState();
+          const profile = store.sshProfiles.find(p => p.name.toLowerCase() === action.profile_name.toLowerCase());
+          if (profile) {
+            setLastText(`Running on ${profile.name}...`);
+            try {
+              // 1. Check if connected, if not connect
+              let status = store.sshConnections[profile.id];
+              if (status !== 'connected') {
+                await store.connectToSshProfile(profile.id);
+                store.setActiveSidebarTab('ssh');
+              }
+              // 2. Find the session that corresponds to this SSH profile
+              // Wait for the new session to be fully created and added to the store
+              await new Promise(r => setTimeout(r, 1000));
+              const updatedStore = useStore.getState();
+              const sshSession = updatedStore.sessions.find(s => s.sshProfileId === profile.id);
+              
+              if (sshSession) {
+                window.dispatchEvent(new CustomEvent('nexus-execute-command', { 
+                  detail: { sessionId: sshSession.id, command: action.command } 
+                }));
+                setStatus('listening');
+                await new Promise(r => setTimeout(r, 2000));
+                executedCommands.push(`ssh_run_on ${profile.name}: ${action.command}`);
+              } else {
+                 throw new Error("Terminal session for SSH not found");
+              }
+            } catch (err) {
+              setLastText(`Failed to run command: ${err.message}`);
+              rejectedReason = `System Error: Failed to run command on SSH profile '${profile.name}'. Error: ${err.message}`;
+              break;
+            }
+          } else {
+            setLastText(`SSH profile '${action.profile_name}' not found.`);
+            rejectedReason = `System Error: SSH profile '${action.profile_name}' not found.`;
+            break;
+          }
         } else if (action.type === 'execute_ui_action' || action.action) {
           const actionName = action.action || action.type;
           window.dispatchEvent(new CustomEvent('nexus-ui-action', { detail: actionName }));

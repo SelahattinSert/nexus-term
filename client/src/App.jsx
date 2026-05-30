@@ -1,10 +1,12 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import TabBar from './components/TabBar';
 import TerminalGrid from './components/TerminalGrid';
 import FileManager from './components/FileManager';
 import GitPanel from './components/GitPanel';
 import ActivityBar from './components/ActivityBar';
 import SnippetsPanel from './components/SnippetsPanel';
+import SSHPanel from './components/SSHPanel';
+import SSHProfileModal from './components/SSHProfileModal';
 import CommandPalette from './components/CommandPalette';
 import ErrorBoundary from './components/ErrorBoundary';
 import SystemMonitor from './components/SystemMonitor';
@@ -16,6 +18,9 @@ import { applyTheme } from './themes';
 import { Toaster } from 'sonner';
 
 function App() {
+  const [isSshModalOpen, setIsSshModalOpen] = useState(false);
+  const [profileToEdit, setProfileToEdit] = useState(null);
+
   const sessions = useStore(state => state.sessions);
   const focusedPane = useStore(state => state.focusedPane);
   const createSession = useStore(state => state.createSession);
@@ -34,8 +39,24 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
-    const handleUiAction = (e) => {
+    const handleUiAction = async (e) => {
       const action = e.detail;
+      
+      if (typeof action === 'string' && action.startsWith('ssh_connect||')) {
+        const profileName = action.split('||')[1];
+        const store = useStore.getState();
+        const profile = store.sshProfiles.find(p => p.name.toLowerCase() === profileName.toLowerCase());
+        if (profile) {
+          try {
+            await store.connectToSshProfile(profile.id);
+            store.setActiveSidebarTab('ssh'); // Open sidebar to show status
+          } catch (err) {
+            console.error('AI SSH connection failed', err);
+          }
+        }
+        return;
+      }
+
       switch(action) {
         case 'split_horizontal':
         case 'split_vertical':
@@ -110,6 +131,7 @@ function App() {
           <FileManager />
           <GitPanel />
           <SnippetsPanel />
+          <SSHPanel onNewProfile={() => { setProfileToEdit(null); setIsSshModalOpen(true); }} onEditProfile={(p) => { setProfileToEdit(p); setIsSshModalOpen(true); }} />
           <div className="flex-1 overflow-hidden relative">
             <TerminalGrid />
           </div>
@@ -117,6 +139,7 @@ function App() {
         <CommandPalette />
         <VoiceOrb />
         <ApprovalModal />
+        <SSHProfileModal isOpen={isSshModalOpen} onClose={() => setIsSshModalOpen(false)} profileToEdit={profileToEdit} />
         <SettingsModal />
       </div>
     </ErrorBoundary>

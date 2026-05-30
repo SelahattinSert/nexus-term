@@ -28,9 +28,10 @@ It is not just a terminal; it is an **Autonomous AI-Driven Development Environme
 - **Smart Grid Layout:** Manage multiple terminals simultaneously with fluidly resizable split-pane views (`react-resizable-panels`).
 
 ### 🛠️ Developer Productivity Tools
+- **SSH Connection Manager:** Connect to remote servers with a single click. Safely stores SSH keys and encrypted passwords. Fully integrated with the AI agent so you can command it to "connect to Production and check logs."
 - **Built-in Code Editor (Monaco):** Double-click files in the explorer to open them in a fully featured, IDE-like Monaco editor right next to your terminal.
 - **Visual CLI Builder & Snippets:** Construct complex commands via UI, save them, and execute them with a single click.
-- **Source Control (Git Panel):** VS Code-style sidebar. View local/remote branches, stage files, and see real-time diffs.
+- **Source Control (Git Panel):** VS Code-style sidebar. View local/remote branches, stage files, see real-time diffs, and double-click changed files to edit them directly.
 - **Command Palette:** Press `Ctrl+P` (or `Cmd+P`) to quickly run saved snippets, change themes, or open new sessions.
 - **System Monitor:** Real-time CPU and RAM usage tracker elegantly displayed in the header.
 
