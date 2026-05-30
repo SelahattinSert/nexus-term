@@ -10,7 +10,8 @@ const execAsync = util.promisify(exec);
 export async function getGitStatus(cwd, callback) {
   try {
     // Step 1: Is it a valid git repo?
-    await execAsync('git rev-parse --is-inside-work-tree', { cwd });
+    const { stdout: rootOut } = await execAsync('git rev-parse --show-toplevel', { cwd });
+    const gitRoot = rootOut.trim();
 
     // Step 2: Get branch name
     const { stdout: branchOut } = await execAsync('git branch --show-current', { cwd });
@@ -22,7 +23,7 @@ export async function getGitStatus(cwd, callback) {
       ? statusOut.trim().split('\n').filter(Boolean).map(line => {
           return {
             status: line.substring(0, 2),
-            file: line.substring(3).trim()
+            file: line.substring(2).trim()
           };
         })
       : [];
@@ -40,7 +41,7 @@ export async function getGitStatus(cwd, callback) {
       ? remoteBranchesOut.trim().split('\n').filter(Boolean).filter(b => !b.includes('->'))
       : [];
 
-    callback({ branch, changedFiles, files, branches, remoteBranches });
+    callback({ gitRoot, branch, changedFiles, files, branches, remoteBranches });
   } catch (err) {
     callback(null);
   }

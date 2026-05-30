@@ -5,7 +5,7 @@ import { nexusFetchJSON } from '../utils/nexusFetch';
 import { toast } from 'sonner';
 
 export default function GitPanel() {
-  const { sessions, focusedPane, isSidebarOpen, activeSidebarTab, addError } = useStore();
+  const { sessions, focusedPane, isSidebarOpen, activeSidebarTab, addError, createEditor } = useStore();
   const [gitStatus, setGitStatus] = useState(null);
   const [isFetching, setIsFetching] = useState(false);
 
@@ -144,8 +144,30 @@ export default function GitPanel() {
                     else if (isDeleted) color = 'text-ctp-red'; // red
                     else if (isModified) color = 'text-ctp-yellow'; // yellow
 
+                    const handleFileDoubleClick = (e) => {
+                      e.stopPropagation();
+                      if (isDeleted) {
+                        toast.error("Cannot open deleted files");
+                        return;
+                      }
+                      if (!gitStatus.gitRoot) {
+                        toast.error("gitRoot is missing from backend response");
+                        return;
+                      }
+                      
+                      try {
+                        const cleanFileName = f.file.replace(/^"|"$/g, '');
+                        const separator = gitStatus.gitRoot.includes('\\') ? '\\' : '/';
+                        const fullPath = gitStatus.gitRoot + separator + cleanFileName;
+                        createEditor(fullPath);
+                        toast.success(`Opening: ${cleanFileName}`);
+                      } catch (err) {
+                        toast.error(`Error opening file: ${err.message}`);
+                      }
+                    };
+
                     return (
-                      <li key={idx} className="flex items-center gap-2 px-2 py-1.5 hover:bg-ctp-surface0 rounded cursor-default transition-colors">
+                      <li key={idx} onDoubleClick={handleFileDoubleClick} className={`flex items-center gap-2 px-2 py-1.5 hover:bg-ctp-surface0 rounded transition-colors ${!isDeleted ? 'cursor-pointer' : 'cursor-default'}`}>
                         <span className={`text-[10px] font-bold w-4 text-center shrink-0 ${color}`}>
                           {f.status.trim()}
                         </span>
