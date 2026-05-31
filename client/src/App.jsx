@@ -6,6 +6,7 @@ import GitPanel from './components/GitPanel';
 import ActivityBar from './components/ActivityBar';
 import SnippetsPanel from './components/SnippetsPanel';
 import SSHPanel from './components/SSHPanel';
+import PortManagerPanel from './components/PortManagerPanel';
 import SSHProfileModal from './components/SSHProfileModal';
 import CommandPalette from './components/CommandPalette';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -132,6 +133,7 @@ function App() {
           <GitPanel />
           <SnippetsPanel />
           <SSHPanel onNewProfile={() => { setProfileToEdit(null); setIsSshModalOpen(true); }} onEditProfile={(p) => { setProfileToEdit(p); setIsSshModalOpen(true); }} />
+          <PortManagerPanel />
           <div className="flex-1 overflow-hidden relative">
             <TerminalGrid />
           </div>

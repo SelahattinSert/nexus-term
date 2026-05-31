@@ -1,6 +1,6 @@
 import React from 'react';
 import { useStore } from '../store';
-import { Files, GitBranch, Star, Settings, Server } from 'lucide-react';
+import { Files, GitBranch, Star, Settings, Server, Wifi } from 'lucide-react';
 
 export default function ActivityBar() {
   const { isSidebarOpen, activeSidebarTab, setActiveSidebarTab, toggleSidebar, setSettingsOpen } = useStore();
@@ -29,6 +29,13 @@ export default function ActivityBar() {
           className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'ssh' && isSidebarOpen ? 'text-ctp-green' : 'text-[#6c7086] hover:text-ctp-green'}`}
         >
           <Server size={24} strokeWidth={1.5} />
+        </button>
+        <button 
+          onClick={() => handleTabClick('ports')}
+          title="Port Manager"
+          className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'ports' && isSidebarOpen ? 'text-ctp-red' : 'text-[#6c7086] hover:text-ctp-red'}`}
+        >
+          <Wifi size={24} strokeWidth={1.5} />
         </button>
         <button 
           onClick={() => handleTabClick('git')}

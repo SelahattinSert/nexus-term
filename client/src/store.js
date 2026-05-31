@@ -1,11 +1,13 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { createSshSlice } from './store/sshStore';
+import { createPortSlice } from './store/portStore';
 
 export const useStore = create(
   persist(
     (set, get) => ({
       ...createSshSlice(set, get),
+      ...createPortSlice(set, get),
 
       // Array of all sessions (background and visible)
       // session: { id: string, pwd: string, gitStatus: { branch, changedFiles } | null }
@@ -257,6 +259,7 @@ export const useStore = create(
         editors: state.editors?.map(e => ({ id: e.id, path: e.path, isDirty: e.isDirty, content: '' })) || [],
         panes: state.panes,
         focusedPane: state.focusedPane,
+        autoRefreshPorts: state.autoRefreshPorts,
       }),
     }
   )

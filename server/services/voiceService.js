@@ -121,6 +121,30 @@ export async function resolveIntent(text, sessionId) {
     }
   }
 
+  // Inject Port Manager Data
+  try {
+    const { scanPorts } = await import('./portScanner.js');
+    const { getActiveTunnels } = await import('./tunnelManager.js');
+    const ports = await scanPorts(false); // don't include ephemeral by default
+    const tunnels = getActiveTunnels();
+    
+    if (ports.length > 0) {
+      contextStr += "\n\n## 📡 Active Network Ports\n" + ports.map(p => {
+        let line = `- Port ${p.port} (${p.processName || 'unknown'}, ${p.state})`;
+        if (tunnels[p.port]) line += ` [TUNNELED via ${tunnels[p.port].provider}: ${tunnels[p.port].url}]`;
+        return line;
+      }).join("\n");
+      
+      const portActionDocs = `
+If the user asks to expose, share, or tunnel a local port (e.g., "tunnel port 3000"), use \`execute_ui_action\` with \`action: "tunnel_port||[PORT_NUMBER]"\`.
+For example: \`{"type": "execute_ui_action", "action": "tunnel_port||3000"}\`
+`;
+      contextStr += portActionDocs;
+    }
+  } catch (err) {
+    console.error('[Voice API] Could not load port data into prompt:', err.message);
+  }
+
   // Inject SSH Profiles
   try {
     const { getProfiles } = await import('./sshService.js');

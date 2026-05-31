@@ -260,8 +260,26 @@ export default function VoiceOrb() {
           }
         } else if (action.type === 'execute_ui_action' || action.action) {
           const actionName = action.action || action.type;
-          window.dispatchEvent(new CustomEvent('nexus-ui-action', { detail: actionName }));
-          await new Promise(r => setTimeout(r, 400));
+          
+          if (actionName.startsWith('tunnel_port||')) {
+            const portStr = actionName.split('||')[1];
+            const port = parseInt(portStr);
+            const store = useStore.getState();
+            store.setActiveSidebarTab('ports');
+            setLastText(`Tunneling port ${port}...`);
+            try {
+              await store.startTunnel(port, null);
+              setLastText(`Tunnel started for port ${port}`);
+              executedCommands.push(`Tunnel started for port ${port}`);
+            } catch (err) {
+              setLastText(`Tunnel failed: ${err.message}`);
+              rejectedReason = `System Error: Failed to start tunnel for port ${port}. Error: ${err.message}`;
+              break;
+            }
+          } else {
+            window.dispatchEvent(new CustomEvent('nexus-ui-action', { detail: actionName }));
+            await new Promise(r => setTimeout(r, 400));
+          }
         } else if (action.type === 'text_response') {
           setLastText(action.response || data.text);
           responseToSpeak = action.response;
