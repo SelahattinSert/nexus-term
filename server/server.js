@@ -42,10 +42,12 @@ function requireToken(req, res, next) {
 import voiceRoute from './routes/voice.js';
 import settingsRoute from './routes/settings.js';
 import sshRoute from './routes/ssh.js';
+import portsRoute from './routes/ports.js';
 
 app.use('/api/voice', requireToken, voiceRoute);
 app.use('/api/settings', requireToken, settingsRoute);
 app.use('/api/ssh', requireToken, sshRoute);
+app.use('/api/ports', requireToken, portsRoute);
 
 app.get('/api/shells', requireToken, (req, res) => {
   const shells = getAvailableShells();
