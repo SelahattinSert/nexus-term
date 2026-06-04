@@ -1,6 +1,6 @@
 import React from 'react';
 import { useStore } from '../store';
-import { Files, GitBranch, Star, Settings, Server, Wifi } from 'lucide-react';
+import { Files, GitBranch, Star, Settings, Server, Wifi, Lock } from 'lucide-react';
 
 export default function ActivityBar() {
   const { isSidebarOpen, activeSidebarTab, setActiveSidebarTab, toggleSidebar, setSettingsOpen } = useStore();
@@ -36,6 +36,13 @@ export default function ActivityBar() {
           className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'ports' && isSidebarOpen ? 'text-ctp-red' : 'text-[#6c7086] hover:text-ctp-red'}`}
         >
           <Wifi size={24} strokeWidth={1.5} />
+        </button>
+        <button 
+          onClick={() => handleTabClick('env')}
+          title="Environment Variables"
+          className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'env' && isSidebarOpen ? 'text-ctp-peach' : 'text-[#6c7086] hover:text-ctp-peach'}`}
+        >
+          <Lock size={24} strokeWidth={1.5} />
         </button>
         <button 
           onClick={() => handleTabClick('git')}
