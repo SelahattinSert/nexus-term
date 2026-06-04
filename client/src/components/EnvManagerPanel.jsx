@@ -83,13 +83,15 @@ function EnvVariableRow({ v, fileId, cwd, onUpdate, onReveal, onHide, revealedVa
 function EnvEditorView({ file, cwd, onBack }) {
   const { saveEnvFile, validateEnvFile, envValidationResults, revealValue, hideValue, revealedKeys } = useStore();
   const [localVars, setLocalVars] = useState(file.variables || []);
+  const [prevVariables, setPrevVariables] = useState(file.variables);
   const [isSaving, setIsSaving] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
 
-  // Sync local vars if file changes externally
-  useEffect(() => {
+  // Sync local vars if file changes externally without triggering cascading renders from effects
+  if (file.variables !== prevVariables) {
+    setPrevVariables(file.variables);
     setLocalVars(file.variables || []);
-  }, [file.variables]);
+  }
 
   const handleUpdateVar = (key, newValue) => {
     setLocalVars(prev => prev.map(v => v.key === key ? { ...v, value: newValue } : v));

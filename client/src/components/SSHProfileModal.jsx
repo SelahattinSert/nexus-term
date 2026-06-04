@@ -34,13 +34,11 @@ export default function SSHProfileModal({ isOpen, onClose, profileToEdit }) {
           passphrase: profileToEdit.passphrase ? '••••••••' : ''
         });
       } else {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
         setFormData({
           name: '', host: '', port: 22, username: '', authMethod: 'key',
           keyPath: '', passphrase: '', password: '', tags: '', color: ''
         });
       }
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setTestStatus(null);
     }
   }, [isOpen, profileToEdit]);
