@@ -276,6 +276,64 @@ export default function VoiceOrb() {
               rejectedReason = `System Error: Failed to start tunnel for port ${port}. Error: ${err.message}`;
               break;
             }
+          } else if (actionName.startsWith('env_switch_profile||')) {
+            const profileName = actionName.split('||')[1];
+            const store = useStore.getState();
+            store.setActiveSidebarTab('env');
+            
+            const targetFile = store.envFiles.find(f => f.profileName === profileName);
+            if (!targetFile) {
+              setLastText(`Environment profile '${profileName}' not found.`);
+              rejectedReason = `System Error: Environment profile '${profileName}' not found.`;
+              break;
+            }
+
+            // Must request approval
+            const actionId = window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `action-${new Date().getTime()}`;
+            store.setPendingCommand({
+              command: `Switch active .env to profile: ${profileName}`,
+              sessionId: useStore.getState().focusedPane || 'global',
+              actionId: actionId
+            });
+
+            const resolution = await new Promise((resolve) => {
+              const handler = (eventArg) => {
+                if (eventArg.detail.actionId === actionId) {
+                  window.removeEventListener('nexus-agent-approval', handler);
+                  resolve(eventArg.detail);
+                }
+              };
+              window.addEventListener('nexus-agent-approval', handler);
+            });
+
+            if (resolution.approved) {
+              setLastText(`Switching env to ${profileName}...`);
+              try {
+                const token = new URLSearchParams(window.location.search).get('token');
+                const cwd = store.sessions.find(s => s.id === store.focusedPane)?.cwd;
+                const url = new URL('/api/env/switch', window.location.origin);
+                url.searchParams.set('token', token);
+                if (cwd) url.searchParams.set('cwd', cwd);
+                
+                await fetch(url.toString(), {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ id: targetFile.id })
+                });
+                
+                await store.fetchEnvFiles(cwd);
+                setLastText(`Switched to ${profileName}`);
+                executedCommands.push(`Switched env to ${profileName}`);
+              } catch (err) {
+                setLastText(`Switch failed: ${err.message}`);
+                rejectedReason = `System Error: Failed to switch env profile. Error: ${err.message}`;
+                break;
+              }
+            } else {
+              setLastText("Action rejected.");
+              rejectedReason = resolution.reason;
+              break;
+            }
           } else {
             window.dispatchEvent(new CustomEvent('nexus-ui-action', { detail: actionName }));
             await new Promise(r => setTimeout(r, 400));

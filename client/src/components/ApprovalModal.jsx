@@ -14,7 +14,6 @@ export default function ApprovalModal() {
     if (pendingCommand) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFeedbackMode(false);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFeedbackText('');
     }
   }, [pendingCommand]);

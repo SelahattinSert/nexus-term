@@ -145,6 +145,46 @@ For example: \`{"type": "execute_ui_action", "action": "tunnel_port||3000"}\`
     console.error('[Voice API] Could not load port data into prompt:', err.message);
   }
 
+  // Inject Env Manager Data
+  try {
+    const { findEnvFiles, getEnvFileDetails } = await import('./envService.js');
+    const cwd = details ? details.cwd : process.cwd();
+    const envFiles = await findEnvFiles(cwd);
+    
+    // Find active .env and .env.example
+    let activeEnv = null;
+    let exampleEnv = null;
+    
+    for (const fp of envFiles) {
+      const detail = await getEnvFileDetails(cwd, fp, true); // true = redact secrets
+      if (detail && detail.isActive) activeEnv = detail;
+      if (detail && detail.profileName === 'example') exampleEnv = detail;
+    }
+
+    if (activeEnv) {
+      const keys = activeEnv.variables.filter(v => v.key).map(v => v.key);
+      contextStr += `\n\n## 🔐 Active Environment Variables (.env)\n`;
+      contextStr += `- File: ${activeEnv.filePath}\n`;
+      contextStr += `- Defined Keys: ${keys.join(', ')}\n`;
+      
+      if (exampleEnv) {
+        const exampleKeys = exampleEnv.variables.filter(v => v.key).map(v => v.key);
+        const missingKeys = exampleKeys.filter(k => !keys.includes(k));
+        if (missingKeys.length > 0) {
+          contextStr += `- Missing Keys (vs .env.example): ${missingKeys.join(', ')}\n`;
+        }
+      }
+      
+      contextStr += `
+If the user asks to switch the active environment profile (e.g., "switch env to production"), use \`execute_ui_action\` with \`action: "env_switch_profile||[PROFILE_NAME]"\`.
+For example: \`{"type": "execute_ui_action", "action": "env_switch_profile||production"}\`
+*Heuristic*: If you encounter an error in the terminal like "API_KEY is not defined", check the Defined Keys above. If it's missing, suggest switching env profiles or adding the key.
+`;
+    }
+  } catch (err) {
+    console.error('[Voice API] Could not load env data into prompt:', err.message);
+  }
+
   // Inject SSH Profiles
   try {
     const { getProfiles } = await import('./sshService.js');

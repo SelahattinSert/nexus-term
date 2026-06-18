@@ -2,12 +2,14 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { createSshSlice } from './store/sshStore';
 import { createPortSlice } from './store/portStore';
+import { createEnvSlice } from './store/envStore';
 
 export const useStore = create(
   persist(
     (set, get) => ({
       ...createSshSlice(set, get),
       ...createPortSlice(set, get),
+      ...createEnvSlice(set, get),
 
       // Array of all sessions (background and visible)
       // session: { id: string, pwd: string, gitStatus: { branch, changedFiles } | null }
