@@ -8,6 +8,7 @@ import SnippetsPanel from './components/SnippetsPanel';
 import SSHPanel from './components/SSHPanel';
 import PortManagerPanel from './components/PortManagerPanel';
 import EnvManagerPanel from './components/EnvManagerPanel';
+import MemoryPanel from './components/panels/MemoryPanel';
 import SSHProfileModal from './components/SSHProfileModal';
 import CommandPalette from './components/CommandPalette';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -136,6 +137,7 @@ function App() {
           <SSHPanel onNewProfile={() => { setProfileToEdit(null); setIsSshModalOpen(true); }} onEditProfile={(p) => { setProfileToEdit(p); setIsSshModalOpen(true); }} />
           <PortManagerPanel />
           <EnvManagerPanel />
+          <MemoryPanel />
           <div className="flex-1 overflow-hidden relative">
             <TerminalGrid />
           </div>
