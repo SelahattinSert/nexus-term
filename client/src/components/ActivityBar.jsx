@@ -1,6 +1,6 @@
 import React from 'react';
 import { useStore } from '../store';
-import { Files, GitBranch, Star, Settings, Server, Wifi, Lock } from 'lucide-react';
+import { Files, GitBranch, Star, Settings, Server, Wifi, Lock, Brain } from 'lucide-react';
 
 export default function ActivityBar() {
   const { isSidebarOpen, activeSidebarTab, setActiveSidebarTab, toggleSidebar, setSettingsOpen } = useStore();
@@ -57,6 +57,13 @@ export default function ActivityBar() {
           className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'snippets' && isSidebarOpen ? 'text-ctp-yellow' : 'text-[#6c7086] hover:text-ctp-yellow'}`}
         >
           <Star size={24} strokeWidth={1.5} />
+        </button>
+        <button 
+          onClick={() => handleTabClick('memory')}
+          title="AI Memory"
+          className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'memory' && isSidebarOpen ? 'text-ctp-yellow animate-pulse' : 'text-[#6c7086] hover:text-ctp-yellow'}`}
+        >
+          <Brain size={24} strokeWidth={1.5} />
         </button>
       </div>
 
