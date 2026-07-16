@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { createSshSlice } from './store/sshStore';
 import { createPortSlice } from './store/portStore';
 import { createEnvSlice } from './store/envStore';
+import { createMemorySlice } from './store/memoryStore';
 
 export const useStore = create(
   persist(
@@ -10,6 +11,7 @@ export const useStore = create(
       ...createSshSlice(set, get),
       ...createPortSlice(set, get),
       ...createEnvSlice(set, get),
+      ...createMemorySlice(set, get),
 
       // Array of all sessions (background and visible)
       // session: { id: string, pwd: string, gitStatus: { branch, changedFiles } | null }
@@ -246,7 +248,12 @@ export const useStore = create(
 
       // --- System Monitor ---
       systemStats: null,
-      setSystemStats: (stats) => set({ systemStats: stats })
+      setSystemStats: (stats) => set({ systemStats: stats }),
+
+      // --- Memory Notification ---
+      memoryNotification: null, // { message: string, visible: boolean }
+      showMemoryNotification: (message) => set({ memoryNotification: { message, visible: true } }),
+      hideMemoryNotification: () => set({ memoryNotification: null })
     }),
     {
       name: 'nexus-store', // unique name

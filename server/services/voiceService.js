@@ -5,8 +5,14 @@ import { readConfig } from '../utils/configManager.js';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
 import fs from 'fs';
+import path from 'path';
+import crypto from 'crypto';
 import pkg from 'wavefile';
 const { WaveFile } = pkg;
+
+import { fingerprint, normalize as normalizeError } from './errorFingerprint.js';
+import { extractKeywords } from './keywordExtractor.js';
+import { findByFingerprint, findByKeywords, add as addMemory } from './errorMemoryStore.js';
 
 ffmpeg.setFfmpegPath(ffmpegStatic);
 
@@ -79,10 +85,49 @@ export async function transcribeAudio(audioFilePath) {
 }
 
 import { getSessionDetails } from '../ptyManager.js';
-import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const activeErrorSessions = new Map();
+
+function detectProjectType(cwd) {
+  try {
+    if (!cwd) return 'unknown';
+    if (fs.existsSync(path.join(cwd, 'package.json'))) return 'node';
+    if (fs.existsSync(path.join(cwd, 'requirements.txt')) || fs.existsSync(path.join(cwd, 'setup.py')) || fs.existsSync(path.join(cwd, 'Pipfile'))) return 'python';
+    if (fs.existsSync(path.join(cwd, 'Dockerfile')) || fs.existsSync(path.join(cwd, 'docker-compose.yml'))) return 'docker';
+    if (fs.existsSync(path.join(cwd, '.git'))) return 'git';
+    return 'system';
+  } catch (_) {
+    return 'unknown';
+  }
+}
+
+async function generateSolutionSummary(openai, config, originalError, commandChain) {
+  try {
+    const prompt = `You are an AI that evaluates error resolution logs.
+Original Error:
+"${originalError.substring(0, 300)}"
+
+Commands executed:
+${commandChain.map((cmd, idx) => `${idx + 1}. ${cmd}`).join('\n')}
+
+Task: Did these commands actually resolve the error, or did the AI just run passive/investigative commands (like dir, ls, pwd) and fail to fix it?
+If NOT resolved, output exactly "UNRESOLVED".
+If resolved, describe what was the error and what command(s) fixed it in 1 or 2 short sentences. Do not write anything else. Keep it plain English.`;
+
+    const response = await openai.chat.completions.create({
+      model: config.model || 'gpt-3.5-turbo',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 60
+    });
+    return response.choices[0].message.content.trim();
+  } catch (err) {
+    console.error('[Memory Service] Failed to generate solution summary:', err.message);
+    return 'Resolved the terminal error by running fixing commands.';
+  }
+}
 
 export async function resolveIntent(text, sessionId) {
   const config = await readConfig();
@@ -111,13 +156,96 @@ export async function resolveIntent(text, sessionId) {
 
   // Inject Context
   let contextStr = `\n\n## 📍 Current Context\n- Operating System: ${process.platform}\n`;
+  let details = null;
+  let hasError = false;
+  let errorText = '';
+  let memoryPrompt = '';
+  let matchedMemoryMetadata = null;
+
   if (sessionId) {
-    const details = getSessionDetails(sessionId);
+    details = getSessionDetails(sessionId);
     if (details) {
       contextStr += `- Active Shell (Interpreter): ${details.shell}\n`;
       contextStr += `- Current Working Directory: ${details.cwd}\n`;
       contextStr += `\n### 📺 Recent Terminal Output (Screen)\n\`\`\`\n${details.recentOutput}\n\`\`\`\n`;
       contextStr += `\n*Note: Use the terminal output above to answer user questions about what happened, what failed, or what is currently on the screen. Treat it as your eyes.*`;
+
+      // --- Error Detection (Step A) ---
+      const recentOutput = details.recentOutput;
+      let last500 = recentOutput.slice(-500);
+      
+      const errorSession = activeErrorSessions.get(sessionId);
+      if (errorSession && errorSession.commandChain.length > 0) {
+        const lastCmd = errorSession.commandChain[errorSession.commandChain.length - 1];
+        const lastCmdIndex = recentOutput.lastIndexOf(lastCmd);
+        if (lastCmdIndex !== -1) {
+          last500 = recentOutput.slice(lastCmdIndex + lastCmd.length);
+        }
+      }
+
+      const errorRegex = /error|exception|failed|fatal|traceback|panic|ENOENT|EACCES|ECONNREFUSED|Cannot find|No such file|permission denied|command not found/i;
+      
+      if (errorRegex.test(last500)) {
+        hasError = true;
+        errorText = last500;
+        
+        // --- Memory Lookup (Step B) ---
+        const fp = fingerprint(errorText);
+        const exactMatch = findByFingerprint(fp);
+        
+        let matchEntry = null;
+        let matchType = 'none';
+        
+        if (exactMatch) {
+          matchEntry = exactMatch;
+          matchType = 'exact';
+        } else {
+          const normalized = normalizeError(errorText);
+          const keywords = extractKeywords(normalized);
+          const fuzzyMatches = findByKeywords(keywords);
+          if (fuzzyMatches.length > 0) {
+            matchEntry = fuzzyMatches[0];
+            matchType = 'fuzzy';
+          }
+        }
+        
+        if (matchEntry) {
+          // --- Context Injection (Step C) ---
+          let fuzzyWarning = '';
+          if (matchType === 'fuzzy' && matchEntry.score === 2) {
+            fuzzyWarning = '\nNote: this is a fuzzy match — verify it applies before executing.';
+          }
+          
+          memoryPrompt = `\nMEMORY: I have solved a similar error before.
+Error pattern: ${matchEntry.errorPattern.substring(0, 100)}...
+What worked: ${matchEntry.solutionSummary}
+Commands that resolved it: ${matchEntry.commandChain.join(' → ')}
+Match confidence: ${matchType}${fuzzyWarning}
+---
+Try the remembered solution first before attempting other approaches.\n\n`;
+
+          // Track metadata to notify frontend
+          matchedMemoryMetadata = {
+            id: matchEntry.id,
+            errorPattern: matchEntry.errorPattern,
+            solutionSummary: matchEntry.solutionSummary,
+            useCount: matchEntry.useCount,
+            lastUsedAt: matchEntry.lastUsedAt,
+            matchType
+          };
+        }
+
+        // Initialize error session if not exists
+        if (!activeErrorSessions.has(sessionId)) {
+          activeErrorSessions.set(sessionId, {
+            originalError: errorText,
+            commandChain: [],
+            shellType: details.shell,
+            workingDir: details.cwd,
+            createdAt: new Date().toISOString()
+          });
+        }
+      }
     }
   }
 
@@ -199,7 +327,7 @@ For example: \`{"type": "execute_ui_action", "action": "env_switch_profile||prod
     console.error('[Voice API] Could not load SSH profiles into prompt:', err.message);
   }
   
-  const systemPrompt = persona + contextStr;
+  const systemPrompt = memoryPrompt + persona + contextStr;
 
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -225,15 +353,88 @@ For example: \`{"type": "execute_ui_action", "action": "env_switch_profile||prod
       // Fallback for older schema if it wrapped it in {type, ...}
       return action.type ? action : { type: tc.function.name, ...action };
     });
+
+    // Track commands in active session
+    if (sessionId && activeErrorSessions.has(sessionId)) {
+      const session = activeErrorSessions.get(sessionId);
+      actions.forEach(a => {
+        if (a.type === 'execute_terminal_command' && a.command) {
+          session.commandChain.push(a.command);
+        } else if (a.type === 'ssh_run_on' && a.command) {
+          session.commandChain.push(a.command);
+        } else if (a.type === 'execute_ui_action' && a.action) {
+          session.commandChain.push(a.action);
+        }
+      });
+    }
     
     const actionStrings = actions.map(a => a.action || a.command || a.response);
     globalConversationHistory.push({ role: 'system', content: `System Note: In the previous turn, you executed these actions: ${actionStrings.join(', ')}` });
     if (globalConversationHistory.length > 20) globalConversationHistory.splice(0, globalConversationHistory.length - 20);
-    return { type: 'multi_action', actions };
+    
+    const resultObj = { type: 'multi_action', actions };
+    if (matchedMemoryMetadata) {
+      resultObj.memoryUsed = matchedMemoryMetadata;
+    }
+    return resultObj;
   }
   
   globalConversationHistory.push({ role: 'assistant', content: message.content || '' });
   if (globalConversationHistory.length > 20) globalConversationHistory.splice(0, globalConversationHistory.length - 20);
 
-  return { type: 'text_response', response: message.content || 'I could not process that request.' };
+  // --- Success Detection & Memory Writing (Step D) ---
+  if (sessionId && activeErrorSessions.has(sessionId)) {
+    const errorSession = activeErrorSessions.get(sessionId);
+    const isResolved = !hasError && errorSession.commandChain.length > 0;
+
+    if (isResolved) {
+      const lastCmds = errorSession.commandChain;
+      const isTooLong = lastCmds.length > 8;
+      const isFlaky = lastCmds.length > 1 && lastCmds.every(cmd => cmd === lastCmds[0]);
+
+      if (!isTooLong && !isFlaky) {
+        // Trigger Memory Writing asynchronously in background
+        (async () => {
+          console.log(`[Memory Service] Resolving error. Generating summary...`);
+          const solutionSummary = await generateSolutionSummary(openai, config, errorSession.originalError, lastCmds);
+          
+          if (solutionSummary.toUpperCase() === 'UNRESOLVED') {
+            console.log(`[Memory Service] Error resolution was evaluated as unresolved by the LLM. Skipping save.`);
+            return;
+          }
+
+          const cleanOriginalError = errorSession.originalError
+            .replace(/[a-zA-Z]:[\\/][\w\-\.\s\\/]+/g, '<path>/')
+            .replace(/\/[\w\-\.\s]+(?:\/[\w\-\.\s]+)+/g, '<path>/');
+          
+          const entry = {
+            id: crypto.randomUUID ? crypto.randomUUID() : `mem-${Date.now()}`,
+            createdAt: new Date().toISOString(),
+            lastUsedAt: new Date().toISOString(),
+            useCount: 1,
+            errorFingerprint: fingerprint(errorSession.originalError),
+            errorPattern: cleanOriginalError.substring(0, 500),
+            errorKeywords: extractKeywords(normalizeError(errorSession.originalError)),
+            solutionSummary,
+            commandChain: lastCmds,
+            shellType: errorSession.shellType || 'unknown',
+            workingDirPattern: errorSession.workingDir ? path.basename(errorSession.workingDir) : 'unknown',
+            projectType: detectProjectType(errorSession.workingDir)
+          };
+
+          addMemory(entry);
+          console.log(`[Memory Service] Saved new error memory entry: ${entry.id}`);
+        })().catch(err => console.error('[Memory Service] Error saving memory entry:', err));
+      }
+    }
+    
+    // Clean up active session
+    activeErrorSessions.delete(sessionId);
+  }
+
+  const resultObj = { type: 'text_response', response: message.content || 'I could not process that request.' };
+  if (matchedMemoryMetadata) {
+    resultObj.memoryUsed = matchedMemoryMetadata;
+  }
+  return resultObj;
 }

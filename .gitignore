@@ -43,3 +43,7 @@ server/models/
 # Worktrees
 .worktrees/
 
+# AI Error Memory
+error-memory.json
+server/data/error-memory.json
+

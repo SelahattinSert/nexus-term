@@ -143,6 +143,16 @@ export default function VoiceOrb() {
 
   const handleAgentResponse = async (data) => {
     setLastText(data.text || 'Thinking...');
+
+    const memoryUsed = data.memoryUsed || data.action?.memoryUsed;
+    if (memoryUsed) {
+      const { solutionSummary, useCount } = memoryUsed;
+      const msg = `${solutionSummary} (used ${useCount}×)`;
+      useStore.getState().showMemoryNotification(msg);
+      setTimeout(() => {
+        useStore.getState().hideMemoryNotification();
+      }, 5000);
+    }
     
     if (data.action) {
       const actions = data.action.type === 'multi_action' ? data.action.actions : [data.action];

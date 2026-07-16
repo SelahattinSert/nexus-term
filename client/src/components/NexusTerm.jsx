@@ -20,6 +20,9 @@ export default function NexusTerm({ sessionId }) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [termInstance, setTermInstance] = useState(null);
+  
+  const memoryNotification = useStore(state => state.memoryNotification);
+  const focusedPane = useStore(state => state.focusedPane);
 
   // Update terminal theme with full 16 ANSI colors when theme changes
   useEffect(() => {
@@ -185,6 +188,15 @@ export default function NexusTerm({ sessionId }) {
 
   return (
     <div className="relative w-full h-full overflow-hidden">
+      {focusedPane === sessionId && memoryNotification?.visible && (
+        <div className="absolute top-2 left-6 z-50 bg-ctp-mantle border border-ctp-yellow rounded-lg shadow-xl px-4 py-2 flex items-center gap-3 text-xs text-ctp-text animate-in fade-in slide-in-from-top-2 border-opacity-70 backdrop-blur-md">
+          <span className="text-base">🧠</span>
+          <div className="flex flex-col text-left">
+            <div className="font-semibold text-ctp-yellow">Using remembered solution</div>
+            <div className="text-ctp-subtext0 font-medium">{memoryNotification.message}</div>
+          </div>
+        </div>
+      )}
       {isSearchOpen && (
         <div className="absolute top-2 right-6 z-50 bg-ctp-mantle border border-ctp-surface1 rounded-lg shadow-xl p-2 flex items-center gap-2 text-sm animate-in fade-in slide-in-from-top-2">
           <Search size={14} className="text-ctp-subtext0" />
