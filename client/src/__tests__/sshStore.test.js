@@ -13,7 +13,7 @@ describe('sshStore slice', () => {
       { id: '1', name: 'Server A', host: '10.0.0.1', username: 'ubuntu' }
     ];
 
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => mockProfiles
     });
@@ -28,7 +28,7 @@ describe('sshStore slice', () => {
     const newProfile = { name: 'Server B', host: '10.0.0.2', username: 'root' };
     const savedProfile = { id: '2', ...newProfile };
 
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => savedProfile
     });
@@ -43,7 +43,7 @@ describe('sshStore slice', () => {
   it('should delete SSH profile and update store list', async () => {
     useStore.setState({ sshProfiles: [{ id: '1', name: 'Server A' }] });
 
-    global.fetch = vi.fn().mockResolvedValue({ ok: true });
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
 
     const { deleteSshProfile } = useStore.getState();
     await deleteSshProfile('1');

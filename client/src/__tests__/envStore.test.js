@@ -13,7 +13,7 @@ describe('envStore slice', () => {
       { id: 'env1', filePath: '/app/.env', profileName: 'default', isActive: true, variables: [] }
     ];
 
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ files: mockFiles })
     });
@@ -26,7 +26,7 @@ describe('envStore slice', () => {
   });
 
   it('should reveal a variable value and update revealedKeys store map', async () => {
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ value: 'revealed_secret_123' })
     });

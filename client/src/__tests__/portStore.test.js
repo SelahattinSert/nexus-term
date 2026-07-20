@@ -13,7 +13,7 @@ describe('portStore slice', () => {
       { port: 3000, protocol: 'tcp', state: 'LISTEN', processName: 'node', pid: 1234 }
     ];
 
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ ports: mockPorts })
     });
@@ -28,7 +28,7 @@ describe('portStore slice', () => {
   });
 
   it('should trigger killPortProcess and refresh ports on success', async () => {
-    global.fetch = vi.fn()
+    globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) }) // delete pid
       .mockResolvedValueOnce({ ok: true, json: async () => ({ ports: [] }) }); // fetchPorts reload
 
@@ -36,11 +36,11 @@ describe('portStore slice', () => {
     const result = await killPortProcess(1234);
 
     expect(result.success).toBe(true);
-    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/ports/1234'), expect.anything());
+    expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/ports/1234'), expect.anything());
   });
 
   it('should start and stop tunnel for a port', async () => {
-    global.fetch = vi.fn()
+    globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ url: 'https://foo.ngrok.app', provider: 'ngrok' }) }) // startTunnel
       .mockResolvedValueOnce({ ok: true, json: async () => ({ ports: [] }) }) // fetchPorts reload
       .mockResolvedValueOnce({ ok: true, json: async () => ({ stopped: true }) }) // stopTunnel
@@ -52,7 +52,7 @@ describe('portStore slice', () => {
     expect(useStore.getState().tunnelLoading[3000]).toBe(false);
 
     await stopTunnel(3000);
-    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/ports/3000/tunnel'), expect.objectContaining({ method: 'DELETE' }));
+    expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/ports/3000/tunnel'), expect.objectContaining({ method: 'DELETE' }));
   });
 
   it('should toggle autoRefreshPorts', () => {

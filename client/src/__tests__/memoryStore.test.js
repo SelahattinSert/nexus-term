@@ -13,7 +13,7 @@ describe('memoryStore slice', () => {
       { id: 'm1', errorPattern: 'EADDRINUSE 3000', solutionSummary: 'Kill port 3000' }
     ];
 
-    global.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ entries: mockEntries, pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } })
     });
@@ -31,7 +31,7 @@ describe('memoryStore slice', () => {
       memoryPagination: { page: 1, limit: 20, total: 2, totalPages: 1 }
     });
 
-    global.fetch = vi.fn()
+    globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: true }) // delete request
       .mockResolvedValueOnce({ ok: true, json: async () => ({ entries: [{ id: 'm2' }], pagination: {} }) }) // fetchMemory
       .mockResolvedValueOnce({ ok: true, json: async () => ({ totalEntries: 1 }) }); // fetchMemoryStats
@@ -40,7 +40,7 @@ describe('memoryStore slice', () => {
     const result = await deleteMemoryEntry('m1');
 
     expect(result.success).toBe(true);
-    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/memory/m1'), expect.objectContaining({ method: 'DELETE' }));
+    expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/memory/m1'), expect.objectContaining({ method: 'DELETE' }));
   });
 
   it('should clear all memory entries', async () => {
@@ -49,7 +49,7 @@ describe('memoryStore slice', () => {
       memoryPagination: { page: 1, limit: 20, total: 1, totalPages: 1 }
     });
 
-    global.fetch = vi.fn()
+    globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({ ok: true }) // clearAllMemory request
       .mockResolvedValueOnce({ ok: true, json: async () => ({ entries: [], pagination: {} }) }); // fetchMemory
 
@@ -57,6 +57,6 @@ describe('memoryStore slice', () => {
     const result = await clearAllMemory();
 
     expect(result.success).toBe(true);
-    expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/memory'), expect.objectContaining({ method: 'DELETE' }));
+    expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/memory'), expect.objectContaining({ method: 'DELETE' }));
   });
 });
