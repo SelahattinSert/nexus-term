@@ -23,15 +23,20 @@ function encrypt(text) {
   const cipher = crypto.createCipheriv(ALGORITHM, getEncryptionKey(), iv);
   let encrypted = cipher.update(text, 'utf8', 'hex');
   encrypted += cipher.final('hex');
-  return `${iv.toString('hex')}:${encrypted}`;
+  const authTag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
 }
 
 function decrypt(hash) {
   if (!hash || !hash.includes(':')) return hash;
   try {
-    const [ivHex, encryptedHex] = hash.split(':');
+    const parts = hash.split(':');
+    if (parts.length < 3) return hash; // Legacy fallback
+    const [ivHex, tagHex, encryptedHex] = parts;
     const iv = Buffer.from(ivHex, 'hex');
+    const authTag = Buffer.from(tagHex, 'hex');
     const decipher = crypto.createDecipheriv(ALGORITHM, getEncryptionKey(), iv);
+    decipher.setAuthTag(authTag);
     let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
     return decrypted;
