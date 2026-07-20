@@ -34,8 +34,12 @@ app.use(express.json());
 
 // --- Auth Middleware (For all /api routes) ---
 function requireToken(req, res, next) {
-  if (req.query.token !== TOKEN) return res.status(401).json({ error: 'Unauthorized' });
-  next();
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const token = req.query.token || req.headers['x-access-token'] || bearerToken;
+
+  if (token === TOKEN) return next();
+  res.status(401).json({ error: 'Unauthorized: Invalid or missing token' });
 }
 
 // --- Terminal API ---
