@@ -1,7 +1,7 @@
 import { pipeline } from '@xenova/transformers';
 import OpenAI from 'openai';
 import { voiceFunctionSchemas } from '../utils/functionSchemas.js';
-import { readConfig } from '../utils/configManager.js';
+import { readRawConfig } from '../utils/configManager.js';
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
 import fs from 'fs';
@@ -21,7 +21,7 @@ let currentTranscriberModel = null;
 const globalConversationHistory = [];
 
 export async function transcribeAudio(audioFilePath) {
-  const config = await readConfig();
+  const config = await readRawConfig();
   const targetModel = config.whisperModel || 'Xenova/whisper-base';
   const targetLanguage = config.whisperLanguage || 'auto';
 
@@ -129,8 +129,8 @@ If resolved, describe what was the error and what command(s) fixed it in 1 or 2 
   }
 }
 
-export async function resolveIntent(text, sessionId) {
-  const config = await readConfig();
+export async function resolveIntent(text, sessionId = null) {
+  const config = await readRawConfig();
   
   const provider = config.provider || 'openai';
   let baseURL = config.url || 'https://api.openai.com/v1';

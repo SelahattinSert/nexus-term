@@ -33,9 +33,13 @@ function getCwdFromReq(req) {
 function getPathFromId(id, cwd) {
   try {
     const filePath = Buffer.from(id, 'base64').toString('utf-8');
-    // Basic path traversal prevention: ensure the path starts with CWD
-    // (In a real app, path.relative and checking for '..' is better)
-    return filePath;
+    const resolvedPath = path.resolve(cwd, filePath);
+    const relative = path.relative(cwd, resolvedPath);
+
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      return null;
+    }
+    return resolvedPath;
   } catch (e) {
     return null;
   }
