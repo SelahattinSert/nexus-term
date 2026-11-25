@@ -9,6 +9,8 @@ const PaneWrapper = ({ paneId, focusedPane, setFocusedPane }) => {
   const { sessions, editors = [] } = useStore();
   const isEditor = editors.some(e => e.id === paneId);
   const isSession = sessions.some(s => s.id === paneId);
+  const share = useStore(state => state.shares[paneId]);
+  const openShareDialog = useStore(state => state.openShareDialog);
 
   return (
     <div 
@@ -16,6 +18,23 @@ const PaneWrapper = ({ paneId, focusedPane, setFocusedPane }) => {
       className={`w-full h-full relative border ${focusedPane === paneId ? 'border-ctp-blue z-10' : 'border-ctp-surface0'} bg-ctp-base overflow-hidden flex flex-col`}
     >
       <ErrorOverlay sessionId={paneId} />
+      {share && (
+        <button
+          onClick={() => openShareDialog(paneId)}
+          className="absolute top-1.5 right-3 z-20 flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold"
+          style={{ borderColor: 'var(--ctp-red)', color: 'var(--ctp-red)', backgroundColor: 'color-mix(in srgb, var(--ctp-mantle) 85%, transparent)' }}
+          title="Shared live — click to manage"
+        >
+          <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--ctp-red)' }} /> LIVE
+          {(share.guests || []).slice(0, 4).map(g => (
+            <span key={g.id} className="w-4 h-4 rounded-full grid place-items-center text-[8px] border"
+              style={{ borderColor: `var(${g.color}, var(--ctp-blue))`, color: `var(${g.color}, var(--ctp-blue))` }}
+              title={`${g.name}${share.controllerId === g.id ? ' (typing)' : ''}`}>
+              {g.name.slice(0, 1).toUpperCase()}
+            </span>
+          ))}
+        </button>
+      )}
       {isSession && (
         <div className="absolute inset-0 p-2 overflow-hidden">
           <NexusTerm sessionId={paneId} />

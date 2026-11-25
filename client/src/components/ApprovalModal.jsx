@@ -1,26 +1,56 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
-import { ShieldAlert, Check, X, MessageSquareWarning } from 'lucide-react';
+import { ShieldAlert, Check, X, MessageSquareWarning, Bot } from 'lucide-react';
+
+const RISK_LABELS = {
+  execute: { label: 'Runs a command on this machine', color: 'var(--ctp-peach)' },
+  remote: { label: 'Uses an SSH connection (remote server)', color: 'var(--ctp-red)' },
+  network: { label: 'Exposes this machine to the internet', color: 'var(--ctp-red)' },
+  'control-foreign': { label: 'Interrupts a terminal it did not open', color: 'var(--ctp-yellow)' },
+  'read-private': { label: 'Reads your terminal output (may contain secrets) — once per connection', color: 'var(--ctp-yellow)' },
+};
 import { motion as Motion, AnimatePresence } from 'framer-motion';
 
 export default function ApprovalModal() {
-  const pendingCommand = useStore(state => state.pendingCommand);
+  const localCommand = useStore(state => state.pendingCommand);
   const clearPendingCommand = useStore(state => state.clearPendingCommand);
+  const serverApprovals = useStore(state => state.serverApprovals);
+  const answerServerApproval = useStore(state => state.answerServerApproval);
+
+  // Local (voice assistant) requests first, then requests from MCP agents in arrival order
+  const serverRequest = !localCommand ? serverApprovals[0] : null;
+  const pendingCommand = localCommand || (serverRequest && {
+    command: serverRequest.command || serverRequest.title,
+    actionId: serverRequest.id,
+    server: serverRequest,
+  });
   const [feedbackMode, setFeedbackMode] = useState(false);
   const [feedbackText, setFeedbackText] = useState('');
 
   // Reset state when a new command arrives
+  const pendingId = pendingCommand?.actionId;
   useEffect(() => {
-    if (pendingCommand) {
+    if (pendingId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setFeedbackMode(false);
       setFeedbackText('');
     }
-  }, [pendingCommand]);
+  }, [pendingId]);
 
   if (!pendingCommand) return null;
 
+  const server = pendingCommand.server;
+
+  const answer = (approved, reason) => {
+    if (server) {
+      answerServerApproval(server.id, approved, reason);
+      return true;
+    }
+    return false;
+  };
+
   const handleApprove = () => {
+    if (answer(true)) return;
     // Tell the backend to proceed
     window.dispatchEvent(new CustomEvent('nexus-agent-approval', { 
       detail: { 
@@ -34,6 +64,7 @@ export default function ApprovalModal() {
   };
 
   const handleReject = () => {
+    if (answer(false, 'User rejected the command.')) return;
     // Tell the backend it was rejected
     window.dispatchEvent(new CustomEvent('nexus-agent-approval', { 
       detail: { 
@@ -49,6 +80,7 @@ export default function ApprovalModal() {
   const handleFeedbackSubmit = (e) => {
     e.preventDefault();
     if (!feedbackText.trim()) return;
+    if (answer(false, `User rejected the command. Feedback: "${feedbackText}"`)) return;
     
     // Tell the backend it was rejected with specific feedback to correct course
     window.dispatchEvent(new CustomEvent('nexus-agent-approval', { 
@@ -82,10 +114,33 @@ export default function ApprovalModal() {
           </div>
 
           <div className="p-5">
-            <p className="text-sm text-ctp-subtext0 mb-3">Jarvis wants to execute the following command:</p>
-            <div className="bg-ctp-crust p-3 rounded-lg border border-ctp-surface0 font-mono text-sm break-all text-ctp-green shadow-inner">
-              {pendingCommand.command}
-            </div>
+            {server ? (
+              <div className="mb-3 space-y-1.5">
+                <p className="text-sm text-ctp-subtext0 flex items-center gap-1.5">
+                  <Bot size={14} className="text-ctp-lavender" />
+                  <span className="font-bold text-ctp-text">{server.client}</span> wants to: {server.title}
+                </p>
+                {RISK_LABELS[server.risk] && (
+                  <span className="inline-block text-[11px] font-bold px-2 py-0.5 rounded-full border" style={{ color: RISK_LABELS[server.risk].color, borderColor: RISK_LABELS[server.risk].color }}>
+                    {RISK_LABELS[server.risk].label}
+                  </span>
+                )}
+                {server.details?.reason && <p className="text-xs text-ctp-subtext0 italic">“{server.details.reason}”</p>}
+              </div>
+            ) : (
+              <p className="text-sm text-ctp-subtext0 mb-3">The assistant wants to execute the following command:</p>
+            )}
+            {(!server || server.command) && (
+              <div className="bg-ctp-crust p-3 rounded-lg border border-ctp-surface0 font-mono text-sm break-all whitespace-pre-wrap text-ctp-green shadow-inner max-h-48 overflow-auto">
+                {pendingCommand.command}
+              </div>
+            )}
+            {pendingCommand.command && pendingCommand.command.includes('\n') && (
+              <p className="text-[11px] text-ctp-yellow mt-1">{pendingCommand.command.split('\n').length} lines — scroll to review all of them</p>
+            )}
+            {server && serverApprovals.length > 1 && (
+              <p className="text-[11px] text-ctp-surface2 mt-2">{serverApprovals.length - 1} more request(s) waiting</p>
+            )}
 
             {feedbackMode ? (
               <form onSubmit={handleFeedbackSubmit} className="mt-5 animate-in slide-in-from-top-2">

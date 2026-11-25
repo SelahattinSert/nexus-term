@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { getNexusHome } from '../utils/paths.js';
 import { getProfiles, saveProfile, deleteProfile, buildSshConfig } from '../services/sshService.js';
 
-const SSH_DIR = path.join(os.homedir(), '.nexusterm');
+const SSH_DIR = getNexusHome();
 const SSH_PROFILES_FILE = path.join(SSH_DIR, 'ssh-profiles.json');
 
 describe('sshService', () => {

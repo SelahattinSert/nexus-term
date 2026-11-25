@@ -1,8 +1,45 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Mic } from 'lucide-react';
 import { useAudioCapture } from './useAudioCapture';
 import { useStore } from '../../store';
-import { motion as Motion } from 'framer-motion';
+import { motion as Motion, useReducedMotion } from 'framer-motion';
+import { waitForCommandCompletion } from '../../hooks/useControlChannel';
+import { themes } from '../../themes';
+import { useOrbMood } from './useOrbMood';
+import { getMood } from './orbMoods';
+import TranscriptConfirm from './TranscriptConfirm';
+import { preloadStt, subscribeSttStatus, transcribe } from '../../voice/stt';
+import { sttModelFromConfig } from '../../voice/sttConfig';
+import { correctTranscript, buildHints } from '../../voice/voiceCorrection';
+import { speak as speakText, stopSpeaking, preloadVoice, defaultVoiceFor, SYSTEM_VOICE } from '../../voice/tts';
+
+/** Shows the approval card and resolves with { approved, reason }. */
+function askApproval(command, sessionId) {
+  const actionId = window.crypto?.randomUUID ? window.crypto.randomUUID() : `action-${Date.now()}`;
+  useStore.getState().setPendingCommand({ command, sessionId: sessionId || 'global', actionId });
+  return new Promise((resolve) => {
+    const handler = (eventArg) => {
+      if (eventArg.detail.actionId === actionId) {
+        window.removeEventListener('nexus-agent-approval', handler);
+        resolve(eventArg.detail);
+      }
+    };
+    window.addEventListener('nexus-agent-approval', handler);
+  });
+}
+
+/** Strips control characters the same way the server does before typing, so the approval card shows exactly what runs. */
+function sanitizeCommand(command) {
+  // eslint-disable-next-line no-control-regex
+  return String(command || '').replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
+}
+
+/** Maps tool calls onto the action names handled below (also accepts the legacy "name||arg" strings). */
+function normalizeAction(action) {
+  if (action.type === 'tunnel_port') return { type: 'execute_ui_action', action: `tunnel_port||${action.port}` };
+  if (action.type === 'env_switch_profile') return { type: 'execute_ui_action', action: `env_switch_profile||${action.profile_name}` };
+  return action;
+}
 
 function TypewriterText({ text }) {
   const [displayedText, setDisplayedText] = useState('');
@@ -30,45 +67,37 @@ export default function VoiceOrb() {
   const [status, setStatus] = useState('unconfigured'); // unconfigured, idle, listening, thinking, speaking
   const [lastText, setLastText] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [liveText, setLiveText] = useState('');           // partial transcript while speaking
+  const [pendingTranscript, setPendingTranscript] = useState(null); // { text, raw, corrections } awaiting confirmation
+  const [sttStatus, setSttStatus] = useState(null);
+  const voiceContextRef = useRef({});                      // words that exist in this terminal (scripts, files, ...)
   
   const setSettingsOpen = useStore(state => state.setSettingsOpen);
   const aiConfig = useStore(state => state.aiConfig);
   const setAiConfig = useStore(state => state.setAiConfig);
+  const themeId = useStore(state => state.theme);
+  const { mood, label: moodLabel, pulseKey } = useOrbMood();
+  const reduceMotion = useReducedMotion();
 
-  // --- TTS (Text to Speech) Implementation ---
+  // --- TTS: local neural voice (Piper), falling back to the browser's speech engine ---
   const speak = (text) => {
-    if (!window.speechSynthesis) return;
-    
-    window.speechSynthesis.cancel();
-    
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voices = window.speechSynthesis.getVoices();
-    
-    if (aiConfig?.ttsVoice) {
-      // Use the specific voice chosen by the user
-      const preferredVoice = voices.find(v => v.voiceURI === aiConfig.ttsVoice);
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
-        utterance.lang = preferredVoice.lang;
-      }
-    } else {
-      // Fallback: Default to the whisper language setting or fallback to English
-      const lang = aiConfig?.whisperLanguage === 'tr' ? 'tr-TR' : 'en-US';
-      utterance.lang = lang;
-      
-      const preferredVoice = voices.find(v => v.lang.startsWith(lang) && !v.name.includes('Google'));
-      if (preferredVoice) utterance.voice = preferredVoice;
-    }
-    
-    utterance.rate = 1.05;
-    utterance.pitch = 1.0;
-
-    utterance.onstart = () => setStatus('speaking');
-    utterance.onend = () => setStatus('idle');
-    utterance.onerror = () => setStatus('idle');
-
-    window.speechSynthesis.speak(utterance);
+    const language = aiConfig?.whisperLanguage || 'auto';
+    speakText(text, {
+      voiceId: aiConfig?.piperVoice || defaultVoiceFor(language),
+      systemVoiceURI: aiConfig?.ttsVoice || undefined,
+      lang: language === 'auto' ? undefined : language,
+      rate: 1.05,
+      onStart: () => setStatus('speaking'),
+      onEnd: () => setStatus('idle'),
+    }).catch(() => setStatus('idle'));
   };
+
+  // Download the chosen voice in the background so the first answer is spoken without delay
+  useEffect(() => {
+    if (!aiConfig?.provider) return;
+    const voiceId = aiConfig.piperVoice || defaultVoiceFor(aiConfig.whisperLanguage || 'auto');
+    if (voiceId !== SYSTEM_VOICE) preloadVoice(voiceId).catch(() => {});
+  }, [aiConfig?.provider, aiConfig?.piperVoice, aiConfig?.whisperLanguage]);
 
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get('token');
@@ -98,27 +127,94 @@ export default function VoiceOrb() {
     return () => clearTimeout(timer);
   }, [aiConfig, status]);
 
-  const onAudioReady = async (blob) => {
-    setStatus('thinking');
-    const formData = new FormData();
-    formData.append('audio', blob, 'voice.webm');
+  const sttModel = sttModelFromConfig(aiConfig?.whisperModel);
+  const sttLanguage = aiConfig?.whisperLanguage || 'auto';
 
+  // Load the speech model in the background as soon as the assistant is configured,
+  // so the first spoken request does not wait for the download/compile.
+  useEffect(() => {
+    if (!aiConfig?.provider) return;
+    preloadStt({ model: sttModel }).catch(() => {});
+  }, [aiConfig?.provider, sttModel]);
+
+  useEffect(() => subscribeSttStatus(setSttStatus), []);
+
+  const loadVoiceContext = useCallback(async () => {
+    const token = new URLSearchParams(window.location.search).get('token');
+    const sid = useStore.getState().focusedPane;
+    try {
+      const res = await fetch(`/api/voice/context?token=${token}${sid ? `&sessionId=${encodeURIComponent(sid)}` : ''}`);
+      const ctx = await res.json();
+      voiceContextRef.current = { ...ctx, executables: useStore.getState().executables || [] };
+    } catch {
+      voiceContextRef.current = { executables: useStore.getState().executables || [] };
+    }
+  }, []);
+
+  const getSttOptions = useCallback(() => ({
+    model: sttModel,
+    language: sttLanguage,
+    hints: buildHints(voiceContextRef.current),
+  }), [sttModel, sttLanguage]);
+
+  const onFinalAudio = async (audio) => {
+    setLiveText('');
+    if (!audio || audio.length === 0) {
+      setLastText("I didn't catch that.");
+      setTimeout(() => setStatus('idle'), 1500);
+      return;
+    }
+    setStatus('thinking');
+    setLastText('Transcribing…');
+    try {
+      const { text } = await transcribe(audio, getSttOptions());
+      if (!text || !text.trim()) {
+        setLastText("I didn't catch that.");
+        setTimeout(() => setStatus('idle'), 1500);
+        return;
+      }
+      const corrected = correctTranscript(text, voiceContextRef.current);
+      setLastText('');
+      setPendingTranscript({ raw: text.trim(), ...corrected });
+    } catch (err) {
+      console.error(err);
+      setLastText(`Speech recognition failed: ${err.message}`);
+      setTimeout(() => setStatus('idle'), 2500);
+    }
+  };
+
+  const sendTranscript = async (text) => {
+    const transcriptInfo = pendingTranscript;
+    setPendingTranscript(null);
+    setStatus('thinking');
+    setLastText(text);
     try {
       const token = new URLSearchParams(window.location.search).get('token');
       const sid = useStore.getState().focusedPane;
-      if (sid) formData.append('sessionId', sid);
-      
-      const res = await fetch(`/api/voice?token=${token}`, {
+      const res = await fetch(`/api/voice/text?token=${token}`, {
         method: 'POST',
-        body: formData
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          sessionId: sid,
+          raw: transcriptInfo?.raw,
+          corrections: text === transcriptInfo?.text ? transcriptInfo?.corrections : [],
+        }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed');
       handleAgentResponse(data);
     } catch (err) {
       console.error(err);
       setLastText('Error occurred!');
       setTimeout(() => setStatus('idle'), 2000);
     }
+  };
+
+  const cancelTranscript = () => {
+    setPendingTranscript(null);
+    setLastText('');
+    setStatus('idle');
   };
 
   const processReActLoop = async (messageContent) => {
@@ -160,7 +256,9 @@ export default function VoiceOrb() {
       let executedCommands = [];
       let rejectedReason = null;
       
-      for (const action of actions) {
+      for (const rawAction of actions) {
+        const action = normalizeAction(rawAction);
+        if (action.command) action.command = sanitizeCommand(action.command);
         if (action.type === 'execute_terminal_command') {
           const sid = useStore.getState().focusedPane;
           if (!sid) {
@@ -170,38 +268,33 @@ export default function VoiceOrb() {
 
           const executeCommand = async () => {
             setLastText(`Executing: ${action.command}`);
-            // Fire command to terminal
+            // Start listening for completion before the command is typed.
+            // Long-running commands (dev servers, watchers) are reported as still running after 30 s.
+            const completion = waitForCommandCompletion(sid, { timeoutMs: 30000 });
             window.dispatchEvent(new CustomEvent('nexus-execute-command', { 
               detail: { sessionId: sid, command: action.command } 
             }));
             
-            // Wait for terminal to process and output
             setStatus('listening'); // Pulse to show it's reading
-            await new Promise(r => setTimeout(r, 2000));
-            executedCommands.push(action.command);
+            const result = await completion;
+            if (result.integrated && result.blocks.length) {
+              const codes = result.blocks.map(b => b.exitCode).join(', ');
+              executedCommands.push(`${action.command} (exit code: ${codes})`);
+            } else if (result.timedOut) {
+              executedCommands.push(`${action.command} (still running)`);
+            } else {
+              executedCommands.push(action.command);
+            }
           };
 
-          if (aiConfig?.autoExecute) {
+          // Auto-execute never applies to SSH tabs: commands there run on a remote server
+          const targetIsSsh = !!useStore.getState().sessions.find(s => s.id === sid)?.isSsh;
+          if (aiConfig?.autoExecute && !targetIsSsh) {
             await executeCommand();
           } else {
             // Ask for permission via Zustand store -> ApprovalModal
-            const actionId = window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `action-${new Date().getTime()}`;
-            useStore.getState().setPendingCommand({
-              command: action.command,
-              sessionId: sid,
-              actionId: actionId
-            });
-
-            // Wait for user resolution via event listener
-            const resolution = await new Promise((resolve) => {
-              const handler = (eventArg) => {
-                if (eventArg.detail.actionId === actionId) {
-                  window.removeEventListener('nexus-agent-approval', handler);
-                  resolve(eventArg.detail);
-                }
-              };
-              window.addEventListener('nexus-agent-approval', handler);
-            });
+            const sshName = targetIsSsh ? useStore.getState().sessions.find(s => s.id === sid)?.name : null;
+            const resolution = await askApproval(targetIsSsh ? `[SSH ${sshName || 'remote'}] ${action.command}` : action.command, sid);
 
             if (resolution.approved) {
               await executeCommand();
@@ -234,6 +327,13 @@ export default function VoiceOrb() {
           const store = useStore.getState();
           const profile = store.sshProfiles.find(p => p.name.toLowerCase() === action.profile_name.toLowerCase());
           if (profile) {
+            // Remote commands always need explicit approval, even with auto-execute enabled
+            const resolution = await askApproval(`[SSH ${profile.name}] ${action.command}`, null);
+            if (!resolution.approved) {
+              setLastText("Command rejected.");
+              rejectedReason = resolution.reason;
+              break;
+            }
             setLastText(`Running on ${profile.name}...`);
             try {
               // 1. Check if connected, if not connect
@@ -273,7 +373,14 @@ export default function VoiceOrb() {
           
           if (actionName.startsWith('tunnel_port||')) {
             const portStr = actionName.split('||')[1];
-            const port = parseInt(portStr);
+            const port = parseInt(portStr, 10);
+            // Exposing a port to the internet always needs explicit approval
+            const resolution = await askApproval(`Expose local port ${port} to the internet (public tunnel)`, null);
+            if (!resolution.approved) {
+              setLastText("Action rejected.");
+              rejectedReason = resolution.reason;
+              break;
+            }
             const store = useStore.getState();
             store.setActiveSidebarTab('ports');
             setLastText(`Tunneling port ${port}...`);
@@ -373,7 +480,11 @@ export default function VoiceOrb() {
     }
   };
 
-  const { startRecording, stopRecording } = useAudioCapture(onAudioReady);
+  const { startRecording, stopRecording } = useAudioCapture({
+    onPartial: setLiveText,
+    onFinal: onFinalAudio,
+    getOptions: getSttOptions,
+  });
 
   const handleClick = () => {
     // Prevent click logic if we just finished dragging
@@ -385,15 +496,20 @@ export default function VoiceOrb() {
     }
     
     if (status === 'speaking') {
-      window.speechSynthesis.cancel();
+      stopSpeaking();
       setStatus('idle');
       return;
     }
 
     if (status === 'idle') {
+      setPendingTranscript(null);
+      setLiveText('');
+      loadVoiceContext(); // fills the hint/correction vocabulary while the user starts speaking
       startRecording();
       setStatus('listening');
-      setLastText('Listening...');
+      setLastText(sttStatus?.state === 'downloading'
+        ? `Listening… (speech model downloading ${Math.round((sttStatus.progress || 0) * 100)}%)`
+        : 'Listening...');
     } else if (status === 'listening') {
       stopRecording();
     }
@@ -404,12 +520,28 @@ export default function VoiceOrb() {
       case 'listening': return 'var(--ctp-green)';
       case 'thinking': return 'var(--ctp-yellow)';
       case 'speaking': return 'var(--ctp-blue)';
-      case 'unconfigured': return 'var(--ctp-overlay0)';
+      case 'unconfigured': return 'var(--ctp-overlay0, var(--ctp-surface2))';
       default: return 'var(--ctp-blue)';
     }
   };
 
-  const color = getStatusColor();
+  // Active voice statuses (listening/thinking/speaking) win over terminal moods. "unconfigured" is
+  // passive, so moods still show for users who never set up an AI provider.
+  const moodActive = (status === 'idle' || status === 'unconfigured') && mood !== 'idle';
+  const moodDef = getMood(moodActive ? mood : 'idle');
+  const color = moodActive ? moodDef.colorVar : getStatusColor();
+  // Light themes need softer glows: the same color-mix percentage reads much stronger on a light base
+  const isLightTheme = themes[themeId]?.category === 'light';
+  const moodGlowPct = Math.round(moodDef.glow * 100 * (isLightTheme ? 0.65 : 1));
+  const showMoodArcs = moodActive && moodDef.spinSeconds > 0;
+  const showMoodPulse = moodActive && moodDef.pulseSeconds > 0;
+  const showMoodBurst = moodActive && !!moodDef.burst && !reduceMotion;
+  const orbTitle = moodActive ? moodLabel : (
+    status === 'unconfigured' ? 'Voice assistant not configured' :
+    status === 'listening' ? 'Listening…' :
+    status === 'thinking' ? 'Thinking…' :
+    status === 'speaking' ? 'Speaking…' : 'Voice assistant'
+  );
   const isActive = status === 'listening' || status === 'speaking' || status === 'thinking';
   const isSpeakingOrListening = status === 'listening' || status === 'speaking';
 
@@ -433,27 +565,65 @@ export default function VoiceOrb() {
           
           {/* Outer slow breathing ring */}
           <div 
-            className={`absolute w-36 h-36 rounded-full border border-ctp-surface1 opacity-20 transition-all duration-1000 ${isActive ? 'scale-110 animate-[pulse_4s_ease-in-out_infinite]' : 'scale-90 opacity-0'}`} 
+            className={`absolute w-36 h-36 rounded-full border border-ctp-surface1 opacity-20 transition-all duration-1000 motion-reduce:transition-none ${isActive ? 'scale-110 animate-[pulse_4s_ease-in-out_infinite] motion-reduce:animate-none' : 'scale-90 opacity-0'}`} 
           />
 
           {/* Dynamic expanding rings (Ping) */}
           {isSpeakingOrListening && (
             <>
-              <div className="absolute w-32 h-32 rounded-full opacity-20 animate-[ping_2s_infinite]" style={{ backgroundColor: color }} />
-              <div className="absolute w-24 h-24 rounded-full opacity-30 animate-[ping_1.5s_infinite]" style={{ backgroundColor: color, animationDelay: '0.4s' }} />
+              <div className="absolute w-32 h-32 rounded-full opacity-20 animate-[ping_2s_infinite] motion-reduce:animate-none" style={{ backgroundColor: color }} />
+              <div className="absolute w-24 h-24 rounded-full opacity-30 animate-[ping_1.5s_infinite] motion-reduce:animate-none" style={{ backgroundColor: color, animationDelay: '0.4s' }} />
             </>
+          )}
+
+          {/* Mood glow: breathes at the mood's rhythm (static when reduced motion is preferred) */}
+          {showMoodPulse && (
+            <Motion.div
+              className="absolute w-32 h-32 rounded-full"
+              style={{ background: `radial-gradient(circle, color-mix(in srgb, ${color} ${moodGlowPct}%, transparent) 0%, transparent 70%)` }}
+              initial={false}
+              animate={reduceMotion ? { opacity: 0.8, scale: 1 } : { opacity: [0.45, 1, 0.45], scale: [0.95, 1.06, 0.95] }}
+              transition={reduceMotion ? { duration: 0.3 } : { duration: moodDef.pulseSeconds, repeat: Infinity, ease: 'easeInOut' }}
+            />
+          )}
+
+          {/* Mood arcs: rotation speed follows the mood */}
+          {showMoodArcs && (
+            <div className="absolute inset-[-20px] opacity-70">
+              <svg
+                className="w-full h-full"
+                viewBox="0 0 100 100"
+                style={reduceMotion ? undefined : { animation: `spin ${moodDef.spinSeconds}s linear infinite` }}
+              >
+                <circle cx="50" cy="50" r="40" fill="none" stroke={color} strokeWidth="2" strokeDasharray="24 160" className="opacity-80" />
+                <circle cx="50" cy="50" r="40" fill="none" stroke={color} strokeWidth="1" strokeDasharray="10 200" strokeDashoffset="110" className="opacity-60" />
+                <circle cx="50" cy="50" r="46" fill="none" stroke={color} strokeWidth="0.5" strokeDasharray="60 150" strokeDashoffset="40" className="opacity-40" />
+              </svg>
+            </div>
+          )}
+
+          {/* Transient burst (error / success): plays once per event, then decays */}
+          {showMoodBurst && (
+            <Motion.div
+              key={`${mood}-${pulseKey}`}
+              className="absolute w-24 h-24 rounded-full"
+              style={{ border: `2px solid ${color}`, backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)` }}
+              initial={{ scale: 1, opacity: 0.8 }}
+              animate={{ scale: 1.7, opacity: 0 }}
+              transition={{ duration: moodDef.burst.seconds, repeat: moodDef.burst.repeat, ease: 'easeOut' }}
+            />
           )}
 
           {/* Multi-layered Rotating Segmented Arcs (SVG) */}
           {isActive && (
             <div className="absolute inset-[-30px]">
-              <svg className={`w-full h-full ${status === 'speaking' ? 'animate-[spin_3s_linear_infinite]' : 'animate-[spin_8s_linear_infinite]'}`} viewBox="0 0 100 100">
+              <svg className={`w-full h-full ${status === 'speaking' ? 'animate-[spin_3s_linear_infinite]' : 'animate-[spin_8s_linear_infinite]'} motion-reduce:animate-none`} viewBox="0 0 100 100">
                 {/* Layer 1: Inner thick segmented arc */}
                 <circle cx="50" cy="50" r="38" fill="none" stroke={color} strokeWidth="3" strokeDasharray="30 150" className="opacity-80" />
                 <circle cx="50" cy="50" r="38" fill="none" stroke={color} strokeWidth="2" strokeDasharray="15 200" strokeDashoffset="120" className="opacity-90" />
 
                 {/* Layer 2: Middle reverse spinning arc */}
-                <g className={`origin-center ${status === 'speaking' ? 'animate-[spin_4s_linear_reverse_infinite]' : 'animate-[spin_12s_linear_reverse_infinite]'}`}>
+                <g className={`origin-center ${status === 'speaking' ? 'animate-[spin_4s_linear_reverse_infinite]' : 'animate-[spin_12s_linear_reverse_infinite]'} motion-reduce:animate-none`}>
                   <circle cx="50" cy="50" r="44" fill="none" stroke={color} strokeWidth="2" strokeDasharray="40 120" className="opacity-50" />
                   <circle cx="50" cy="50" r="44" fill="none" stroke={color} strokeWidth="1" strokeDasharray="10 180" strokeDashoffset="80" className="opacity-70" />
                 </g>
@@ -471,19 +641,21 @@ export default function VoiceOrb() {
           {/* Main Orb */}
           <div 
           onClick={handleClick}
-          className={`relative w-24 h-24 rounded-full flex items-center justify-center transition-all duration-500 z-10 shadow-2xl ${
+          title={orbTitle}
+          aria-label={orbTitle}
+          className={`relative w-24 h-24 rounded-full flex items-center justify-center transition-all duration-500 motion-reduce:transition-none motion-reduce:animate-none z-10 shadow-2xl ${
             isDragging ? 'cursor-grabbing' : 'cursor-pointer'
           } ${
             status === 'listening' ? 'scale-110' : 
             status === 'thinking' ? 'animate-pulse scale-95' : 
             status === 'speaking' ? 'scale-105' :
-            status === 'unconfigured' ? 'grayscale' :
+            status === 'unconfigured' && !moodActive ? 'grayscale' :
             !isDragging ? 'hover:scale-105 active:scale-95' : ''
           }`}
           style={{
             backgroundColor: 'var(--ctp-crust)', // The dark Void center
             border: `2px solid color-mix(in srgb, ${color} 60%, transparent)`,
-            boxShadow: `0 0 50px color-mix(in srgb, ${color} ${isSpeakingOrListening ? '80%' : '30%'}, transparent)`
+            boxShadow: `0 0 50px color-mix(in srgb, ${color} ${isSpeakingOrListening ? '80%' : moodActive ? `${moodGlowPct}%` : '30%'}, transparent)`
           }}
           >
           {/* Core Ring Structure (Instead of Icon) */}
@@ -492,9 +664,9 @@ export default function VoiceOrb() {
 
           {/* Deep Glowing Center Core */}
           <div 
-            className={`absolute w-10 h-10 rounded-full blur-xl transition-all duration-500 ${
+            className={`absolute w-10 h-10 rounded-full blur-xl transition-all duration-500 motion-reduce:transition-none motion-reduce:animate-none ${
               status === 'speaking' ? 'opacity-80 animate-pulse' : 
-              isActive ? 'opacity-60' : 'opacity-10'
+              isActive ? 'opacity-60' : moodActive ? 'opacity-40' : 'opacity-10'
             }`}
             style={{ backgroundColor: color }}
           />
@@ -502,22 +674,31 @@ export default function VoiceOrb() {
           {/* Central Activity Indicator (Replaces Mic) */}
           <div className="relative z-20 pointer-events-none flex items-center justify-center w-full h-full">
             {status === 'thinking' ? (
-               <div className="w-8 h-8 rounded-full border-t-2 border-ctp-crust animate-spin" style={{ borderColor: 'transparent', borderTopColor: color, borderRightColor: color }} />
+               <div className="w-8 h-8 rounded-full border-t-2 border-ctp-crust animate-spin motion-reduce:animate-none" style={{ borderColor: 'transparent', borderTopColor: color, borderRightColor: color }} />
             ) : status === 'listening' ? (
-               <div className="w-4 h-4 rounded-full animate-ping" style={{ backgroundColor: color }} />
+               <div className="w-4 h-4 rounded-full animate-ping motion-reduce:animate-none" style={{ backgroundColor: color }} />
             ) : status === 'speaking' ? (
-               <div className="w-6 h-6 rounded-full animate-pulse" style={{ backgroundColor: color, boxShadow: `0 0 20px ${color}` }} />
-            ) : status === 'unconfigured' ? (
+               <div className="w-6 h-6 rounded-full animate-pulse motion-reduce:animate-none" style={{ backgroundColor: color, boxShadow: `0 0 20px ${color}` }} />
+            ) : status === 'unconfigured' && !moodActive ? (
                <div className="w-3 h-3 rounded-full bg-ctp-surface2" />
             ) : (
-               <div className="w-3 h-3 rounded-full opacity-50" style={{ backgroundColor: color }} />
+               <div className={`w-3 h-3 rounded-full transition-colors duration-500 motion-reduce:transition-none ${moodActive ? 'opacity-90' : 'opacity-50'}`} style={{ backgroundColor: color }} />
             )}
           </div>
 
-          {/* Subtitles / Text Box */}
-          {lastText && (
+          {pendingTranscript && (
+            <TranscriptConfirm
+              key={pendingTranscript.raw}
+              transcript={pendingTranscript}
+              onSend={sendTranscript}
+              onCancel={cancelTranscript}
+            />
+          )}
+
+          {/* Subtitles / Text Box (live transcript while listening) */}
+          {(lastText || liveText) && !pendingTranscript && (
             <div 
-              className="absolute bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-xl text-sm font-medium shadow-2xl border transition-all animate-in fade-in slide-in-from-bottom-2 pointer-events-none whitespace-normal break-words w-72 md:w-96 text-center leading-relaxed" 
+              className="absolute bottom-24 left-1/2 -translate-x-1/2 px-5 py-3 rounded-xl text-sm font-medium shadow-2xl border transition-all animate-in fade-in slide-in-from-bottom-2 motion-reduce:transition-none motion-reduce:animate-none pointer-events-none whitespace-normal break-words w-72 md:w-96 text-center leading-relaxed" 
               style={{ 
                 backgroundColor: 'color-mix(in srgb, var(--ctp-mantle) 85%, transparent)', 
                 color: 'var(--ctp-text)', 
@@ -525,7 +706,9 @@ export default function VoiceOrb() {
                 backdropFilter: 'blur(12px)'
               }}
             >
-              <TypewriterText text={lastText} />
+              {status === 'listening' && liveText
+                ? <span aria-live="polite" className="italic">{liveText}</span>
+                : <TypewriterText text={lastText} />}
               {/* Little pointer triangle */}
               <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 rotate-45 border-r border-b" 
                 style={{ 
@@ -534,6 +717,20 @@ export default function VoiceOrb() {
                 }} 
               />
             </div>
+          )}
+        </div>
+
+        {/* Subtle mood caption under the orb */}
+        <div
+          className="absolute top-full mt-2 left-1/2 -translate-x-1/2 whitespace-nowrap pointer-events-none text-[11px] leading-none flex items-center gap-1.5 transition-opacity duration-500 motion-reduce:transition-none"
+          style={{ color: 'color-mix(in srgb, var(--ctp-text) 70%, transparent)', opacity: moodActive && moodLabel ? 1 : 0 }}
+          aria-live="polite"
+        >
+          {moodActive && moodLabel && (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color }} />
+              {moodLabel}
+            </>
           )}
         </div>
       </div>

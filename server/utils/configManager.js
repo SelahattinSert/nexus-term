@@ -1,112 +1,78 @@
 import fs from 'fs/promises';
-import path from 'path';
-import os from 'os';
-import crypto from 'crypto';
+import { nexusPath, ensurePrivateDir, writePrivateFile } from './paths.js';
+import { MASK, encryptSecret, decryptSecret, isLegacyEncrypted } from './secretBox.js';
 
-const CONFIG_DIR = path.join(os.homedir(), '.nexusterm');
-const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
-
-const ALGORITHM = 'aes-256-gcm';
-const getEncryptionKey = () => {
-  const secretInfo = os.hostname() + '_' + os.userInfo().username;
-  return crypto.scryptSync(secretInfo, 'nexus_config_salt', 32);
-};
-
-function encrypt(text) {
-  if (!text) return text;
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(ALGORITHM, getEncryptionKey(), iv);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const authTag = cipher.getAuthTag();
-  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
-}
-
-function decrypt(hash) {
-  if (!hash || !hash.includes(':')) return hash;
-  try {
-    const parts = hash.split(':');
-    if (parts.length < 3) return hash; // Fallback for legacy plain text or malformed format
-    const [ivHex, tagHex, encryptedHex] = parts;
-    const iv = Buffer.from(ivHex, 'hex');
-    const authTag = Buffer.from(tagHex, 'hex');
-    const decipher = crypto.createDecipheriv(ALGORITHM, getEncryptionKey(), iv);
-    decipher.setAuthTag(authTag);
-    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch (err) {
-    // If decryption fails, assume plain text legacy or unencrypted
-    return hash;
-  }
-}
+const configFile = () => nexusPath('config.json');
 
 const DEFAULT_CONFIG = {
-  aiProvider: 'openai',
+  provider: '', // empty until the user configures an AI provider (the UI shows "unconfigured")
   apiKey: '',
-  baseURL: 'https://api.openai.com/v1',
-  model: 'gpt-3.5-turbo'
+  url: 'https://api.openai.com/v1',
+  model: 'gpt-4o-mini',
+  autoExecute: false,
+  persistBlocks: true,
 };
+
+/** Migrates keys written by older versions (aiProvider/baseURL were never read by the services). */
+function normalize(config) {
+  const out = { ...config };
+  if (out.aiProvider && !config.provider) out.provider = out.aiProvider;
+  if (out.baseURL && !config.url) out.url = out.baseURL;
+  delete out.aiProvider;
+  delete out.baseURL;
+  return out;
+}
+
+async function readStoredConfig() {
+  await ensurePrivateDir();
+  try {
+    const data = await fs.readFile(configFile(), 'utf8');
+    return { ...DEFAULT_CONFIG, ...normalize(JSON.parse(data)) };
+  } catch (e) {
+    if (e.code !== 'ENOENT') console.error('Error reading config:', e.message);
+    return { ...DEFAULT_CONFIG };
+  }
+}
 
 export async function readConfig(maskSecrets = true) {
   const rawConfig = await readRawConfig();
   if (maskSecrets && rawConfig.apiKey) {
-    return {
-      ...rawConfig,
-      apiKey: '••••••••'
-    };
+    return { ...rawConfig, apiKey: MASK };
   }
   return rawConfig;
 }
 
+/** Returns the configuration with secrets decrypted, for internal backend services only. */
 export async function readRawConfig() {
-  try {
-    await fs.mkdir(CONFIG_DIR, { recursive: true });
-    const data = await fs.readFile(CONFIG_FILE, 'utf8');
-    const parsed = { ...DEFAULT_CONFIG, ...JSON.parse(data) };
-    if (parsed.apiKey) {
-      parsed.apiKey = decrypt(parsed.apiKey);
+  const stored = await readStoredConfig();
+  if (stored.apiKey) {
+    try {
+      const plain = decryptSecret(stored.apiKey);
+      if (isLegacyEncrypted(stored.apiKey)) {
+        // Upgrade legacy (hostname-derived key) ciphertext to the master-key format.
+        await writePrivateFile(configFile(), JSON.stringify({ ...stored, apiKey: encryptSecret(plain) }, null, 2));
+      }
+      stored.apiKey = plain;
+    } catch (err) {
+      console.error('[Config]', err.message);
+      stored.apiKey = '';
     }
-    return parsed;
-  } catch (e) {
-    if (e.code === 'ENOENT') {
-      await fs.writeFile(CONFIG_FILE, JSON.stringify(DEFAULT_CONFIG, null, 2), 'utf8');
-      return DEFAULT_CONFIG;
-    }
-    console.error('Error reading config:', e);
-    return DEFAULT_CONFIG;
   }
+  return stored;
 }
 
 export async function writeConfig(config) {
-  try {
-    await fs.mkdir(CONFIG_DIR, { recursive: true });
-    let rawCurrent = DEFAULT_CONFIG;
-    try {
-      const data = await fs.readFile(CONFIG_FILE, 'utf8');
-      rawCurrent = { ...DEFAULT_CONFIG, ...JSON.parse(data) };
-    } catch (e) {
-      // Ignore read error
-    }
+  const current = await readStoredConfig();
+  const incoming = normalize(config || {});
+  const newConfig = { ...current, ...incoming };
 
-    const newConfig = { ...rawCurrent, ...config };
-
-    // Handle apiKey encryption and preservation if masked value received
-    if (config.apiKey === '••••••••') {
-      newConfig.apiKey = rawCurrent.apiKey; // Keep stored encrypted/raw key
-    } else if (config.apiKey) {
-      newConfig.apiKey = encrypt(config.apiKey);
-    }
-
-    await fs.writeFile(CONFIG_FILE, JSON.stringify(newConfig, null, 2), 'utf8');
-
-    // Return masked config to client caller
-    return {
-      ...newConfig,
-      apiKey: newConfig.apiKey ? '••••••••' : ''
-    };
-  } catch (err) {
-    console.error('Error writing config:', err);
-    throw err;
+  if (incoming.apiKey === MASK) {
+    newConfig.apiKey = current.apiKey; // keep the stored (encrypted) key
+  } else if (incoming.apiKey) {
+    newConfig.apiKey = encryptSecret(incoming.apiKey);
   }
+
+  await writePrivateFile(configFile(), JSON.stringify(newConfig, null, 2));
+
+  return { ...newConfig, apiKey: newConfig.apiKey ? MASK : '' };
 }

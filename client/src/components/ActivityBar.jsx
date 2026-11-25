@@ -1,9 +1,10 @@
 import React from 'react';
 import { useStore } from '../store';
-import { Files, GitBranch, Star, Settings, Server, Wifi, Lock, Brain } from 'lucide-react';
+import { Files, GitBranch, Star, Settings, Server, Wifi, Lock, Brain, NotebookPen, Bot } from 'lucide-react';
 
 export default function ActivityBar() {
   const { isSidebarOpen, activeSidebarTab, setActiveSidebarTab, toggleSidebar, setSettingsOpen } = useStore();
+  const pendingApprovals = useStore(state => state.serverApprovals.length);
 
   const handleTabClick = (tab) => {
     if (isSidebarOpen && activeSidebarTab === tab) {
@@ -57,6 +58,23 @@ export default function ActivityBar() {
           className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'snippets' && isSidebarOpen ? 'text-ctp-yellow' : 'text-[#6c7086] hover:text-ctp-yellow'}`}
         >
           <Star size={24} strokeWidth={1.5} />
+        </button>
+        <button 
+          onClick={() => handleTabClick('notebook')}
+          title="Notebook (command history)"
+          className={`p-2 rounded-lg transition-colors ${activeSidebarTab === 'notebook' && isSidebarOpen ? 'text-ctp-lavender' : 'text-[#6c7086] hover:text-ctp-lavender'}`}
+        >
+          <NotebookPen size={24} strokeWidth={1.5} />
+        </button>
+        <button 
+          onClick={() => handleTabClick('agents')}
+          title="Agents (MCP)"
+          className={`relative p-2 rounded-lg transition-colors ${activeSidebarTab === 'agents' && isSidebarOpen ? 'text-ctp-blue' : 'text-[#6c7086] hover:text-ctp-blue'}`}
+        >
+          <Bot size={24} strokeWidth={1.5} />
+          {pendingApprovals > 0 && (
+            <span className="absolute top-0.5 right-0.5 min-w-4 h-4 px-1 rounded-full bg-ctp-red text-ctp-crust text-[9px] font-bold flex items-center justify-center">{pendingApprovals}</span>
+          )}
         </button>
         <button 
           onClick={() => handleTabClick('memory')}

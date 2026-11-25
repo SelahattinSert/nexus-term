@@ -1,36 +1,64 @@
 import pty from 'node-pty';
 import os from 'os';
-import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { getSystemExecutables } from './pathScanner.js';
-import { getGitStatus, fetchAndGetGitStatus } from './gitMonitor.js';
 import { Client } from 'ssh2';
-import { buildSshConfig } from './services/sshService.js';
+import { getSystemExecutables } from './pathScanner.js';
+import { getGitStatus } from './gitMonitor.js';
+import { buildSshConfig, getRawProfileById } from './services/sshService.js';
+import { buildShellConfig, shellKind } from './terminal/shellIntegration.js';
+import { createOscStream } from './terminal/oscStream.js';
+import { BlockTracker } from './terminal/blockTracker.js';
+import { toPlainText, unescapeCommand } from './terminal/textUtils.js';
+import { safeEqual } from './mcp/token.js';
+import * as blockStore from './services/blockStore.js';
+import { bus, broadcast } from './services/eventBus.js';
 
 // ========================
-// PROTOCOL CONSTANTS
-// All meta messages between Frontend-Backend go with this prefix.
-// Terminal raw output (stdout) goes RAW without prefix.
-// This ensures that commands producing JSON (jq, cat file.json) never
-// conflict with meta messages.
+// PROTOCOL
+// Meta messages between frontend and backend carry the NEXUS_META: / NEXUS_CMD: prefixes.
+// Raw terminal output is sent without a prefix, so commands printing JSON never collide with meta messages.
 // ========================
 const META = (obj) => 'NEXUS_META:' + JSON.stringify(obj);
 const CMD_PREFIX = 'NEXUS_CMD:';
+const SESSION_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
+const HISTORY_LIMIT = 100000;
 
-const sessions = new Map(); // sessionId -> { pty, ws, timeout, currentPwd }
+// Commands whose non-zero exit code is normal control flow, not an error worth an overlay
+const QUIET_FAILURES = new Set(['grep', 'egrep', 'fgrep', 'rg', 'test', '[', '[[', 'diff', 'cmp', 'false', 'which', 'command', 'type', 'git diff']);
+
+const sessions = new Map();
+
+export function isValidSessionId(id) {
+  return typeof id === 'string' && SESSION_ID_RE.test(id);
+}
 
 class SshPtyWrapper {
-  constructor(profile, cols, rows) {
+  constructor(profileId, cols, rows) {
     this._file = 'SSH';
     this.pid = 'Remote';
     this.conn = new Client();
     this.stream = null;
     this.listeners = [];
-    this._connect(profile, cols, rows);
+    this.exitListeners = [];
+    this.profileName = null;
+    this._connect(profileId, cols, rows);
   }
 
-  _connect(profile, cols, rows) {
+  async _connect(profileId, cols, rows) {
+    let profile;
+    try {
+      // Always load the stored profile on the server: the browser only has masked secrets.
+      profile = await getRawProfileById(profileId);
+      if (!profile) throw new Error('SSH profile not found');
+      this.profileName = profile.name;
+      this.conn.connect(buildSshConfig(profile));
+    } catch (err) {
+      this._emitData(`\r\n\x1b[31m[SSH] ${err.message}\x1b[0m\r\n`);
+      this._emitExit();
+      return;
+    }
+
     this.conn.on('ready', () => {
       this.conn.shell({ term: 'xterm-256color', cols, rows }, (err, stream) => {
         if (err) {
@@ -39,23 +67,18 @@ class SshPtyWrapper {
         }
         this.stream = stream;
         this._emitData(`\r\n\x1b[32m[SSH] Connected to ${profile.username}@${profile.host}\x1b[0m\r\n`);
-        
         stream.on('data', (d) => this._emitData(d.toString()));
+        stream.stderr?.on('data', (d) => this._emitData(d.toString()));
         stream.on('close', () => {
           this._emitData('\r\n\x1b[33m[SSH] Connection closed by remote host.\x1b[0m\r\n');
           this.conn.end();
+          this._emitExit();
         });
       });
     }).on('error', (err) => {
       this._emitData(`\r\n\x1b[31m[SSH] Connection Error: ${err.message}\x1b[0m\r\n`);
+      this._emitExit();
     });
-
-    try {
-      const config = buildSshConfig(profile);
-      this.conn.connect(config);
-    } catch (err) {
-      this._emitData(`\r\n\x1b[31m[SSH] Config Error: ${err.message}\x1b[0m\r\n`);
-    }
   }
 
   onData(cb) {
@@ -63,8 +86,19 @@ class SshPtyWrapper {
     return { dispose: () => { this.listeners = this.listeners.filter(l => l !== cb); } };
   }
 
+  onExit(cb) {
+    this.exitListeners.push(cb);
+    return { dispose: () => { this.exitListeners = this.exitListeners.filter(l => l !== cb); } };
+  }
+
   _emitData(data) {
     this.listeners.forEach(cb => cb(data));
+  }
+
+  _emitExit() {
+    const listeners = this.exitListeners;
+    this.exitListeners = [];
+    listeners.forEach(cb => cb({ exitCode: null }));
   }
 
   write(data) {
@@ -84,316 +118,475 @@ class SshPtyWrapper {
 export function getAvailableShells() {
   const shells = [];
   const addShell = (name, executable) => {
-    if (fs.existsSync(executable)) {
-      shells.push({ name, path: executable });
-    }
+    if (fs.existsSync(executable)) shells.push({ name, path: executable });
   };
 
-  // PowerShell 7+
-  addShell('PowerShell', 'C:\\Program Files\\PowerShell\\7\\pwsh.exe');
-  // Windows PowerShell
-  addShell('Windows PowerShell', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
-  // Command Prompt
-  addShell('Command Prompt', 'C:\\Windows\\System32\\cmd.exe');
-  // Git Bash
-  addShell('Git Bash', 'C:\\Program Files\\Git\\bin\\bash.exe');
-  
-  // Add WSL if available
-  const wslPath = 'C:\\Windows\\System32\\wsl.exe';
-  if (fs.existsSync(wslPath)) {
-      shells.push({ name: 'WSL', path: wslPath });
-  }
-
-  // Add Unix shells if applicable
-  if (os.platform() !== 'win32') {
+  if (os.platform() === 'win32') {
+    addShell('PowerShell', 'C:\\Program Files\\PowerShell\\7\\pwsh.exe');
+    addShell('Windows PowerShell', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+    addShell('Command Prompt', 'C:\\Windows\\System32\\cmd.exe');
+    addShell('Git Bash', 'C:\\Program Files\\Git\\bin\\bash.exe');
+    addShell('WSL', 'C:\\Windows\\System32\\wsl.exe');
+  } else {
     addShell('bash', '/bin/bash');
     addShell('zsh', '/bin/zsh');
+    addShell('fish', '/usr/bin/fish');
     addShell('sh', '/bin/sh');
   }
-
   return shells;
 }
 
-export function createTerminal(sessionId, options = {}) {
-  // If session already exists, don't recreate - return existing PTY
-  if (sessions.has(sessionId)) {
-    return sessions.get(sessionId).pty;
+function defaultShell() {
+  return os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'bash');
+}
+
+function publicSession(session) {
+  return {
+    id: session.id,
+    name: session.name,
+    kind: session.kind,
+    shell: session.shell,
+    cwd: session.currentPwd,
+    createdBy: session.createdBy,
+    createdAt: session.createdAt,
+    integration: session.tracker.integration,
+    running: session.tracker.isRunning,
+    attached: !!(session.ws && session.ws.readyState === 1),
+    exited: session.exited,
+    sshProfileId: session.sshProfileId,
+  };
+}
+
+function sendToSession(session, obj) {
+  if (session.ws && session.ws.readyState === 1) session.ws.send(META(obj));
+}
+
+function setCwd(session, newPwd) {
+  if (!newPwd || newPwd === session.currentPwd) return;
+  session.currentPwd = newPwd;
+  sendToSession(session, { type: 'DIR_CHANGE', payload: newPwd });
+  if (session.ws && session.ws.readyState === 1) {
+    getGitStatus(newPwd, (gitInfo) => sendToSession(session, { type: 'GIT_STATUS', payload: gitInfo }));
+  }
+}
+
+function handleOsc(session, code, payload) {
+  if (code === '633') {
+    // Integration markers must carry this session's nonce; anything else was printed by a program
+    const sep = payload.indexOf(';');
+    if (sep === -1 || !session.nonce || !safeEqual(payload.slice(0, sep), session.nonce)) return;
+    const rest = payload.slice(sep + 1);
+    if (rest.length > 1 && rest[1] !== ';') return;
+    const marker = rest[0];
+    const arg = rest.slice(2);
+    if (marker === 'W') setCwd(session, unescapeCommand(arg));
+    else session.tracker.handleMarker(marker, arg);
+    return;
   }
 
-  let ptyProcess;
-  const cols = options.cols || 80;
-  const rows = options.rows || 24;
+  // OSC 7 is only trusted from shells without NexusTerm integration (SSH, fish, sh, ...):
+  // integrated shells report their directory through the authenticated W marker.
+  if (code === '7' && (session.kind === 'ssh' || session.kind === 'other')) {
+    const match = /^file:\/\/[^/]*(\/.*)$/.exec(payload);
+    if (!match) return;
+    let newPwd;
+    try { newPwd = decodeURIComponent(match[1]); } catch { newPwd = match[1]; }
+    if (os.platform() === 'win32' && /^\/[a-zA-Z]:\//.test(newPwd)) newPwd = newPwd.slice(1);
+    setCwd(session, newPwd);
+  }
+  // Unauthenticated 133 markers and the legacy 999 channel are consumed and ignored
+}
 
-  if (options.sshProfile) {
-    ptyProcess = new SshPtyWrapper(options.sshProfile, cols, rows);
+/**
+ * Types a command at the shell prompt.
+ * When the line editor has bracketed paste enabled (bash/zsh/PSReadLine announce it with ESC[?2004h),
+ * the command is pasted so control characters, tabs and newlines are inserted literally instead of
+ * acting as editing keys, and any half-typed text is cleared first (Ctrl+E, Ctrl+U). Remaining C0
+ * control characters are always stripped, so what was approved is exactly what runs.
+ */
+export function sanitizeCommand(command) {
+  return String(command).replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
+}
+
+function typeCommand(session, command) {
+  const clean = sanitizeCommand(command);
+  if (session.bracketedPaste && session.kind !== 'pwsh') {
+    session.pty.write(`\x05\x15\x1b[200~${clean}\x1b[201~\r`);
   } else {
-    const platform = os.platform();
-    const shell = options.shell || (platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'bash'));
-    const { shellArgs, shellEnv } = buildShellConfig(shell, platform);
+    session.pty.write(`${clean.replace(/\t/g, ' ')}\r`);
+  }
+}
 
-    ptyProcess = pty.spawn(shell, shellArgs, {
-      name: 'xterm-256color',
-      cols,
-      rows,
-      cwd: options.cwd || process.env.HOME || process.env.USERPROFILE || process.cwd(),
-      env: shellEnv,
+function onBlockFinished(session, block) {
+  const stored = blockStore.addBlock({ ...block, sessionName: session.name, host: session.kind === 'ssh' ? 'ssh' : os.hostname() });
+  bus.emit('block-finished', stored);
+  broadcast('BLOCK_FINISHED', stored);
+
+  const first = (block.command || '').trim().split(/\s+/)[0];
+  const two = (block.command || '').trim().split(/\s+/).slice(0, 2).join(' ');
+  const failed = block.exitCode !== null && block.exitCode !== 0 && block.exitCode !== 130;
+  if (failed && first && !QUIET_FAILURES.has(first) && !QUIET_FAILURES.has(two)) {
+    const errorId = crypto.randomUUID();
+    sendToSession(session, {
+      type: 'ERROR',
+      errorId,
+      rule: {
+        id: errorId,
+        // A command line can chain several programs, so show the whole line rather than blaming the first word
+        description: `Command failed with exit code ${block.exitCode}: ${block.command.length > 80 ? block.command.slice(0, 77) + '...' : block.command}`,
+        actions: [],
+        blockId: stored.id,
+      },
     });
+  }
+}
+
+export function createTerminal(sessionId, options = {}) {
+  if (!isValidSessionId(sessionId)) throw new Error('Invalid sessionId');
+  if (sessions.has(sessionId)) return sessions.get(sessionId).pty;
+
+  const cols = Number(options.cols) || 80;
+  const rows = Number(options.rows) || 24;
+  const sshProfileId = options.sshProfileId || options.sshProfile?.id || null;
+  const home = process.env.HOME || process.env.USERPROFILE || process.cwd();
+  const cwd = options.cwd && fs.existsSync(options.cwd) ? options.cwd : home;
+
+  let ptyProcess;
+  let shell;
+  let kind;
+  let nonce = null;
+
+  if (sshProfileId) {
+    ptyProcess = new SshPtyWrapper(sshProfileId, cols, rows);
+    shell = 'ssh';
+    kind = 'ssh';
+  } else {
+    shell = options.shell && options.shell !== 'ssh' ? options.shell : defaultShell();
+    kind = shellKind(shell);
+    nonce = crypto.randomBytes(12).toString('hex');
+    const { shellArgs, shellEnv } = buildShellConfig(shell, nonce);
+    ptyProcess = pty.spawn(shell, shellArgs, { name: 'xterm-256color', cols, rows, cwd, env: shellEnv });
   }
 
   const session = {
+    id: sessionId,
+    name: options.name || null,
+    kind,
+    shell,
+    sshProfileId,
+    createdBy: options.createdBy || 'ui',
+    createdAt: new Date().toISOString(),
     pty: ptyProcess,
     ws: null,
     timeout: null,
-    currentPwd: process.env.HOME || process.cwd(),
+    currentPwd: cwd,
     history: [],
     historySize: 0,
-    dataListener: null,
-    oscBuffer: ''
+    osc: createOscStream(),
+    lastOutputAt: 0,
+    exited: false,
+    nonce,
+    bracketedPaste: false,
+    cols,
+    rows,
   };
-  sessions.set(sessionId, session);
-  
-  // Attach PTY data listener immediately to buffer history
-  session.dataListener = ptyProcess.onData((data) => {
-    session.oscBuffer += data;
-    
-    // Process OSC 7 (Directory Change)
-    if (session.oscBuffer.includes('\x1b]7;')) {
-      let match7;
-      const osc7Regex = /\x1b\]7;file:\/\/[^/]*(\/[^\x07]*)\x07/g;
-      while ((match7 = osc7Regex.exec(session.oscBuffer)) !== null) {
-        let newPwd = decodeURIComponent(match7[1]);
-        if (os.platform() === 'win32' && newPwd.match(/^\/[a-zA-Z]:\//)) {
-          newPwd = newPwd.slice(1);
-        }
-        session.currentPwd = newPwd;
-        if (session.ws && session.ws.readyState === 1) {
-          session.ws.send(META({ type: 'DIR_CHANGE', payload: newPwd }));
-          getGitStatus(newPwd, (gitInfo) => {
-            if (session.ws && session.ws.readyState === 1) session.ws.send(META({ type: 'GIT_STATUS', payload: gitInfo }));
-          });
-        }
-      }
-      session.oscBuffer = session.oscBuffer.replace(osc7Regex, '');
-    }
 
-    // Process OSC 999 (Structured Events from Shell Hook)
-    if (session.oscBuffer.includes('\x1b]999;')) {
-      let match999;
-      const osc999Regex = /\x1b\]999;([^\x07]+)\x07/g;
-      while ((match999 = osc999Regex.exec(session.oscBuffer)) !== null) {
-        try {
-          const payload = JSON.parse(match999[1]);
-          if (payload.type === 'COMMAND_FAILED' && session.ws && session.ws.readyState === 1) {
-            handleCommandFailed(session, payload);
-          }
-        } catch (e) {
-          console.error('Failed to parse OSC 999 payload', e);
-        }
-      }
-      session.oscBuffer = session.oscBuffer.replace(osc999Regex, '');
-    }
-
-    // Prevent buffer memory leak
-    if (session.oscBuffer.length > 4000) {
-      session.oscBuffer = session.oscBuffer.slice(-2000);
-    }
-
-    // History management
-    session.history.push(data);
-    session.historySize += data.length;
-    while (session.historySize > 100000 && session.history.length > 1) {
-      session.historySize -= session.history.shift().length;
-    }
-    
-    // Clean OSC 999 from the raw data sent to xterm.js (so user doesn't see JSON)
-    let rawToFrontend = data.includes('\x1b]999;') ? data.replace(/\x1b\]999;([^\x07]+)\x07/g, '') : data;
-    
-    if (session.ws && session.ws.readyState === 1) {
-      session.ws.send(rawToFrontend); // RAW terminal output
-    }
+  session.tracker = new BlockTracker(sessionId, {
+    getCwd: () => session.currentPwd,
+    onStart: (block) => {
+      bus.emit('block-started', block);
+      broadcast('BLOCK_STARTED', block);
+    },
+    onFinish: (block) => onBlockFinished(session, block),
+    onIntegration: () => broadcast('SESSION_UPDATED', publicSession(session)),
   });
 
+  sessions.set(sessionId, session);
+
+  session.dataListener = ptyProcess.onData((data) => {
+    session.lastOutputAt = Date.now();
+    let forward = '';
+    for (const part of session.osc.push(data)) {
+      if (part.type === 'text') {
+        forward += part.data;
+        session.tracker.handleText(part.data);
+      } else {
+        handleOsc(session, part.code, part.payload);
+      }
+    }
+    if (!forward) return;
+
+    // Track whether the line editor currently accepts bracketed paste (see typeCommand)
+    const on = forward.lastIndexOf('\x1b[?2004h');
+    const off = forward.lastIndexOf('\x1b[?2004l');
+    if (on !== -1 || off !== -1) session.bracketedPaste = on > off;
+
+    bus.emit('output', sessionId, forward);
+    session.history.push(forward);
+    session.historySize += forward.length;
+    while (session.historySize > HISTORY_LIMIT && session.history.length > 1) {
+      session.historySize -= session.history.shift().length;
+    }
+    if (session.ws && session.ws.readyState === 1) session.ws.send(forward);
+  });
+
+  ptyProcess.onExit?.(() => {
+    session.exited = true;
+    bus.emit('session-exited', sessionId);
+    broadcast('SESSION_UPDATED', publicSession(session));
+  });
+
+  bus.emit('session-created', publicSession(session));
+  if (session.createdBy !== 'ui') broadcast('SESSION_CREATED', publicSession(session));
   return ptyProcess;
 }
 
-export function handleConnection(ws, req, { getCpuUsage }) {
+export function handleConnection(ws, req) {
   const url = new URL(req.url, 'http://localhost');
   const sessionId = url.searchParams.get('sessionId');
 
-  if (!sessionId) return ws.close(4000, 'sessionId is required');
+  if (!isValidSessionId(sessionId)) return ws.close(4000, 'valid sessionId is required');
 
-  const platform = os.platform(); // Defined at the top so both blocks can access it
-
-  // ── RECONNECT OR CONNECT LOGIC ───────────────────────────────────────
   if (!sessions.has(sessionId)) {
-    // If not created via POST /api/terminals, create a default one
-    createTerminal(sessionId);
+    try {
+      createTerminal(sessionId);
+    } catch (err) {
+      return ws.close(4001, err.message);
+    }
   }
 
   const session = sessions.get(sessionId);
-  clearTimeout(session.timeout);   // Stop the Reaper
+  clearTimeout(session.timeout);
   session.timeout = null;
-  
+
   session.ws = ws;
   const connectionId = crypto.randomUUID();
   session.currentConnectionId = connectionId;
-  
-  // We only attach WS message listener here, PTY onData is attached in createTerminal
+
   ws.on('message', (msg) => {
     const data = msg.toString();
     if (data.startsWith(CMD_PREFIX)) {
       try {
         const cmd = JSON.parse(data.slice(CMD_PREFIX.length));
         if (cmd.type === 'ACTION' && typeof cmd.command === 'string') {
-          session.pty.write(`${cmd.command}\r`);
+          typeCommand(session, cmd.command);
         } else if (cmd.type === 'RESIZE') {
-          session.pty.resize(cmd.cols, cmd.rows);
+          const cols = Number(cmd.cols);
+          const rows = Number(cmd.rows);
+          if (cols > 0 && rows > 0) {
+            session.pty.resize(cols, rows);
+            session.cols = cols;
+            session.rows = rows;
+            bus.emit('resize', sessionId, { cols, rows });
+          }
         } else if (cmd.type === 'READY') {
-          if (session.history && session.history.length > 0) {
+          if (session.history.length > 0) {
             ws.send('\x1b[2J\x1b[3J\x1b[H');
-            session.history.forEach(chunk => {
-              let rawToFrontend = chunk.includes('\x1b]999;') ? chunk.replace(/\x1b\]999;([^\x07]+)\x07/g, '') : chunk;
-              ws.send(rawToFrontend);
-            });
+            session.history.forEach(chunk => ws.send(chunk));
           }
           getSystemExecutables().then(execs => {
             if (ws.readyState === 1) ws.send(META({ type: 'EXECUTABLES', payload: execs }));
           });
         }
-      } catch (_) { /* Malformed JSON: ignore */ }
+      } catch { /* Malformed JSON: ignore */ }
     } else {
       session.pty.write(data); // Raw keystroke
     }
   });
-  
-  // Attach reaper to connection
+
   ws.on('close', () => {
-    // Prevent race condition: Ensure this is the exact connection that disconnected
+    // Ignore stale connections replaced by a newer one
     if (session.currentConnectionId !== connectionId) return;
-    
+
     session.timeout = setTimeout(() => {
-      // Check one more time before killing to be absolutely sure no new connection arrived
       if (session.currentConnectionId !== connectionId) return;
-      
-      killPty(session.pty, platform);
-      setTimeout(() => {
-        try { killPty(session.pty, platform, true); } catch (_) {}
-        sessions.delete(sessionId);
-      }, 2000);
+      killSession(sessionId);
     }, 3000);
   });
 }
 
-async function handleCommandFailed(session, payload) {
-  const { ws } = session;
-  const fullCmd = payload.cmd.trim();
-  const extractedCommand = fullCmd.split(' ')[0].trim();
-  
-  if (!extractedCommand) return;
-
-  const errorId = crypto.randomUUID();
-  const matchedRule = {
-    id: errorId,
-    description: `Command '${extractedCommand}' failed with exit code ${payload.exitCode}. Check your arguments.`,
-    actions: []
-  };
-
-  ws.send(META({ type: 'ERROR', rule: matchedRule, errorId }));
-}
-
-
-
-// ──────────────────────────────────────────────────────────────────────
-// OSC injection configuration according to the Shell
-// ──────────────────────────────────────────────────────────────────────
-function buildShellConfig(shell, platform) {
-  let shellArgs = [];
-  let shellEnv = { ...process.env };
-
-  if (shell.includes('bash')) {
-    const initPath = path.join(os.tmpdir(), 'nexus_bash_init.sh');
-    fs.writeFileSync(
-      initPath,
-      `PROMPT_COMMAND='printf "\\e]7;file://%s%s\\a" "$HOSTNAME" "$PWD"'\n`
-    );
-    shellArgs = ['--rcfile', initPath];
-
-  } else if (shell.includes('zsh')) {
-    const zDotDir = path.join(os.tmpdir(), 'nexus_zsh_conf');
-    fs.mkdirSync(zDotDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(zDotDir, '.zshrc'),
-      `precmd() { printf "\\e]7;file://%s%s\\a" "$HOST" "$PWD" }\n`
-    );
-    shellEnv.ZDOTDIR = zDotDir;
-
-  } else if (platform === 'win32') {
-    // PowerShell: OSC 7 (DIR) and OSC 999 (EVENTS) injection
-    const initPath = path.join(os.tmpdir(), 'nexus_pwsh_init.ps1');
-    fs.writeFileSync(
-      initPath,
-      `$global:OriginalPrompt = $function:prompt\n` +
-      `function global:prompt {\n` +
-      `  $success = $?\n` +
-      `  $exitCode = $LASTEXITCODE\n` +
-      `  if (-not $success) {\n` +
-      `    $lastCommandObj = Get-History -Count 1\n` +
-      `    $lastCommand = ""\n` +
-      `    if ($lastCommandObj) {\n` +
-      `      $lastCommand = $lastCommandObj.CommandLine.Trim()\n` +
-      `    } elseif ($Error.Count -gt 0) {\n` +
-      `      $lastCommand = $Error[0].InvocationInfo.Line.Trim()\n` +
-      `    }\n` +
-      `    if ($lastCommand) {\n` +
-      `      $payload = @{ type = "COMMAND_FAILED"; cmd = $lastCommand; exitCode = $exitCode; cwd = $PWD.Path } | ConvertTo-Json -Compress\n` +
-      `      Write-Host "$([char]27)]999;$payload$([char]7)" -NoNewline\n` +
-      `    }\n` +
-      `  }\n` +
-      `  $p = $PWD.Path -replace '\\\\', '/'\n` +
-      `  Write-Host "$([char]27)]7;file://$env:COMPUTERNAME/$p$([char]7)" -NoNewline\n` +
-      `  return & $global:OriginalPrompt\n` +
-      `}\n`
-    );
-    shellArgs = ['-NoExit', '-File', initPath];
-  }
-
-  return { shellArgs, shellEnv };
+export function killSession(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  const platform = os.platform();
+  killPty(session.pty, platform);
+  setTimeout(() => {
+    try { killPty(session.pty, platform, true); } catch { /* already gone */ }
+    sessions.delete(sessionId);
+    bus.emit('session-closed', sessionId);
+    broadcast('SESSION_CLOSED', { id: sessionId });
+  }, 2000);
+  return true;
 }
 
 function killPty(ptyProcess, platform, force = false) {
   try {
-    if (platform === 'win32') {
-      ptyProcess.kill();
-    } else {
-      ptyProcess.kill(force ? 'SIGKILL' : 'SIGTERM');
-    }
+    if (platform === 'win32') ptyProcess.kill();
+    else ptyProcess.kill(force ? 'SIGKILL' : 'SIGTERM');
   } catch (err) {
-    console.error('Failed to kill PTY gracefully:', err.message);
+    if (!force) console.error('Failed to kill PTY gracefully:', err.message);
   }
 }
 
 export function injectCommand(sessionId, command) {
-  if (sessions.has(sessionId)) {
-    const session = sessions.get(sessionId);
-    session.pty.write(`${command}\r`);
-  }
+  const session = sessions.get(sessionId);
+  if (session) typeCommand(session, command);
+}
+
+export function getSession(sessionId) {
+  const session = sessions.get(sessionId);
+  return session ? publicSession(session) : null;
+}
+
+export function listSessions() {
+  return [...sessions.values()].map(publicSession);
+}
+
+/** Plain-text tail of a session's scrollback. */
+export function readTerminal(sessionId, maxChars = 4000) {
+  const session = sessions.get(sessionId);
+  if (!session) return null;
+  const plain = toPlainText(session.history.join(''));
+  return plain.slice(-Math.min(Math.max(maxChars, 100), 50000));
 }
 
 export function getSessionDetails(sessionId) {
-  if (sessions.has(sessionId)) {
-    const session = sessions.get(sessionId);
-    
-    // Strip ANSI escape codes from history for the LLM to read clearly
-    const rawHistory = session.history.join('');
-    const plainTextHistory = rawHistory.replace(/\x1b\[[0-9;]*m/g, '').replace(/\x1b\][^\x07]+\x07/g, '');
-    const recentOutput = plainTextHistory.slice(-2000); // Last 2000 chars
+  const session = sessions.get(sessionId);
+  if (!session) return null;
+  return {
+    shell: session.pty._file || session.shell || 'Unknown Shell',
+    pid: session.pty.pid,
+    cwd: session.currentPwd,
+    recentOutput: readTerminal(sessionId, 2000),
+  };
+}
 
-    return {
-      shell: session.pty._file || 'Unknown Shell',
-      pid: session.pty.pid,
-      cwd: session.currentPwd,
-      recentOutput: recentOutput
-    };
+/** Sends Ctrl+C to the session. */
+export function interruptSession(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  session.pty.write('\x03');
+  return true;
+}
+
+/** Waits until a freshly spawned shell has printed its first prompt (or a short timeout). */
+async function waitForReady(session, timeoutMs = 15000) {
+  const expectsIntegration = ['bash', 'zsh', 'pwsh'].includes(session.kind);
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (session.exited) return;
+    if (expectsIntegration && session.tracker.integration) return;
+    if (!expectsIntegration && session.lastOutputAt && Date.now() - session.lastOutputAt > 500) return;
+    await new Promise(r => setTimeout(r, 50));
   }
-  return null;
+}
+
+/**
+ * Types a command into a session and waits for it to finish.
+ *
+ * With shell integration the result is exact (exit code + output per command block). Without it
+ * (SSH, cmd.exe, fish) completion is approximated by output going quiet.
+ *
+ * @returns {Promise<{sessionId, integration, timedOut, exitCode, output, blocks}>}
+ */
+export async function runCommand(sessionId, command, { timeoutMs = 120000 } = {}) {
+  const session = sessions.get(sessionId);
+  if (!session) throw new Error(`Session ${sessionId} not found`);
+  if (session.exited) throw new Error(`Session ${sessionId} has exited`);
+  if (session.tracker.isRunning) {
+    throw new Error(`Session ${sessionId} is busy running another command. Wait, interrupt it, or use another session.`);
+  }
+
+  await waitForReady(session);
+  const integration = session.tracker.integration;
+  const limit = Math.min(Math.max(Number(timeoutMs) || 120000, 1000), 30 * 60 * 1000);
+
+  return new Promise((resolve) => {
+    const blocks = [];
+    let rawFallback = '';
+    let settleTimer = null;
+    let quietTimer = null;
+    let finished = false;
+
+    const finish = (timedOut) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(settleTimer);
+      clearTimeout(quietTimer);
+      clearTimeout(overall);
+      bus.off('block-started', onStart);
+      bus.off('block-finished', onFinish);
+      bus.off('output', onOutput);
+      bus.off('session-exited', onExit);
+
+      let output;
+      if (blocks.length) {
+        output = blocks.map(b => b.output).join('\n');
+        if (timedOut && session.tracker.isRunning) output += '\n' + session.tracker.currentOutput();
+      } else if (integration) {
+        output = session.tracker.currentOutput();
+      } else {
+        output = toPlainText(rawFallback);
+        // drop the echoed command line
+        const firstNl = output.indexOf('\n');
+        if (firstNl !== -1 && output.slice(0, firstNl).includes(command.split('\n')[0].trim())) output = output.slice(firstNl + 1);
+        output = output.trim();
+      }
+
+      resolve({
+        sessionId,
+        integration,
+        timedOut,
+        stillRunning: timedOut && session.tracker.isRunning,
+        exitCode: blocks.length ? blocks[blocks.length - 1].exitCode : null,
+        output,
+        blocks: blocks.map(b => ({ id: b.id, command: b.command, exitCode: b.exitCode, durationMs: b.durationMs, truncated: b.truncated })),
+      });
+    };
+
+    const onStart = (b) => { if (b.sessionId === sessionId) clearTimeout(settleTimer); };
+    const onFinish = (b) => {
+      if (b.sessionId !== sessionId) return;
+      blocks.push(b);
+      // a multi-line command produces several blocks: wait briefly for the next one
+      clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => finish(false), 300);
+    };
+    const onOutput = (sid, text) => {
+      if (sid !== sessionId || integration) return;
+      rawFallback += text;
+      clearTimeout(quietTimer);
+      quietTimer = setTimeout(() => finish(false), 1500);
+    };
+    const onExit = (sid) => { if (sid === sessionId) finish(false); };
+
+    bus.on('block-started', onStart);
+    bus.on('block-finished', onFinish);
+    bus.on('output', onOutput);
+    bus.on('session-exited', onExit);
+    const overall = setTimeout(() => finish(true), limit);
+    if (!integration) quietTimer = setTimeout(() => finish(false), 4000);
+
+    typeCommand(session, command);
+  });
+}
+
+/** Test helper: the marker nonce of a session. */
+export function _sessionNonce(sessionId) {
+  return sessions.get(sessionId)?.nonce || null;
+}
+
+/** Everything needed to show a session to a live-share guest: scrollback and terminal size. */
+export function getShareSnapshot(sessionId) {
+  const session = sessions.get(sessionId);
+  if (!session) return null;
+  return { history: session.history.join(''), cols: session.cols, rows: session.rows, name: session.name, kind: session.kind };
+}
+
+/** Raw keystrokes from a live-share guest who was given control by the owner. */
+export function writeRawInput(sessionId, data) {
+  const session = sessions.get(sessionId);
+  if (!session || session.exited) return false;
+  session.pty.write(data);
+  return true;
 }

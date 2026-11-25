@@ -1,9 +1,7 @@
 import fs from 'fs';
-import path from 'path';
-import os from 'os';
+import { getNexusHome, nexusPath, ensurePrivateDirSync, writePrivateFileSync } from '../utils/paths.js';
 
-const MEMORY_DIR = path.join(os.homedir(), '.nexusterm');
-const MEMORY_FILE = path.join(MEMORY_DIR, 'error-memory.json');
+const memoryFile = () => nexusPath('error-memory.json');
 const MAX_ENTRIES = 500;
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024; // 2MB
 
@@ -20,12 +18,10 @@ let lastSaveTime = 0;
  */
 export function load() {
   try {
-    if (!fs.existsSync(MEMORY_DIR)) {
-      fs.mkdirSync(MEMORY_DIR, { recursive: true });
-    }
+    ensurePrivateDirSync(getNexusHome());
 
-    if (fs.existsSync(MEMORY_FILE)) {
-      const content = fs.readFileSync(MEMORY_FILE, 'utf8');
+    if (fs.existsSync(memoryFile())) {
+      const content = fs.readFileSync(memoryFile(), 'utf8');
       const data = JSON.parse(content);
       if (data && Array.isArray(data.entries)) {
         memoryCache = data;
@@ -74,10 +70,7 @@ export function save() {
 
   const doWrite = () => {
     try {
-      if (!fs.existsSync(MEMORY_DIR)) {
-        fs.mkdirSync(MEMORY_DIR, { recursive: true });
-      }
-      fs.writeFileSync(MEMORY_FILE, JSON.stringify(memoryCache, null, 2), 'utf8');
+      writePrivateFileSync(memoryFile(), JSON.stringify(memoryCache, null, 2));
       lastSaveTime = Date.now();
       saveTimeout = null;
       console.log('[Memory Store] Saved memory store to disk successfully.');

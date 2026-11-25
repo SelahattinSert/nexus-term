@@ -1,4 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { STT_MODELS } from '../voice/stt';
+import { sttModelFromConfig } from '../voice/sttConfig';
+import PiperVoicePicker from './VoiceOrb/PiperVoicePicker';
+import { defaultVoiceFor } from '../voice/tts';
 import { AnimatePresence, motion as Motion } from 'framer-motion';
 import { X, Settings, Database, Key, Server, Hash, Monitor, Palette, TerminalSquare, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useStore } from '../store';
@@ -124,9 +128,10 @@ export default function SettingsModal() {
   const [model, setModel] = useState('');
   const [url, setUrl] = useState('');
   const [autoExecute, setAutoExecute] = useState(false);
-  const [whisperModel, setWhisperModel] = useState('Xenova/whisper-base');
+  const [whisperModel, setWhisperModel] = useState('onnx-community/whisper-small');
   const [whisperLanguage, setWhisperLanguage] = useState('auto');
   const [ttsVoice, setTtsVoice] = useState('');
+  const [piperVoice, setPiperVoice] = useState('');
   const [availableVoices, setAvailableVoices] = useState([]);
   const [isPlayingPreview, setIsPlayingPreview] = useState(false);
   const [themeFilter, setThemeFilter] = useState('all');
@@ -161,9 +166,10 @@ export default function SettingsModal() {
           setModel(aiConfig.model || '');
           setUrl(aiConfig.url || '');
           setAutoExecute(aiConfig.autoExecute || false);
-          setWhisperModel(aiConfig.whisperModel || 'Xenova/whisper-base');
+          setWhisperModel(sttModelFromConfig(aiConfig.whisperModel));
           setWhisperLanguage(aiConfig.whisperLanguage || 'auto');
           setTtsVoice(aiConfig.ttsVoice || '');
+          setPiperVoice(aiConfig.piperVoice || defaultVoiceFor(aiConfig.whisperLanguage || 'auto'));
         }
       }, 0);
     }
@@ -197,7 +203,7 @@ export default function SettingsModal() {
 
   const handleSaveAI = async (e) => {
     e.preventDefault();
-    const configData = { provider, apiKey, model, url, autoExecute, whisperModel, whisperLanguage, ttsVoice };
+    const configData = { provider, apiKey, model, url, autoExecute, whisperModel, whisperLanguage, ttsVoice, piperVoice };
     try {
       const token = new URLSearchParams(window.location.search).get('token');
       const res = await fetch(`/api/settings?token=${token}`, {
@@ -332,16 +338,16 @@ export default function SettingsModal() {
                   <form onSubmit={handleSaveAI} className="space-y-4">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Monitor size={14}/> Whisper Model</label>
-                      <select value={whisperModel} onChange={(e) => setWhisperModel(e.target.value)} 
+                      <select value={sttModelFromConfig(whisperModel)} onChange={(e) => setWhisperModel(e.target.value)} 
                       className="w-full border rounded-xl px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-ctp-blue"
                       style={{ borderColor: 'var(--ctp-surface0)', backgroundColor: 'var(--ctp-base)', color: 'var(--ctp-text)' }}>
-                        <option value="Xenova/whisper-tiny">Tiny (Fastest, Low Accuracy)</option>
-                        <option value="Xenova/whisper-base">Base (Balanced)</option>
-                        <option value="Xenova/whisper-small">Small (Slower, High Accuracy)</option>
-                        <option value="Xenova/whisper-base.en">Base.en (English Only - Very Accurate)</option>
-                        <option value="Xenova/whisper-small.en">Small.en (English Only - Best Accuracy)</option>
+                        {STT_MODELS.map(m => (
+                          <option key={m.id} value={m.id}>{m.label}{m.recommended ? ' (recommended)' : ''} · {m.sizeHint}</option>
+                        ))}
                       </select>
-                      <p className="text-xs text-ctp-subtext0 ml-1 mt-1">If you only speak English, selecting an '.en' model prevents hallucinations.</p>
+                      <p className="text-xs text-ctp-subtext0 ml-1 mt-1">
+                        Runs entirely in your browser (uses your graphics card when available). The model is downloaded once and cached; nothing you say leaves this computer.
+                      </p>
                     </div>
                     <div className="space-y-1.5 mt-4">
                       <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Hash size={14}/> Forced Language</label>
@@ -358,7 +364,12 @@ export default function SettingsModal() {
                     </div>
 
                     <div className="space-y-3 mt-4 pt-4 border-t" style={{ borderColor: 'color-mix(in srgb, var(--ctp-surface0) 50%, transparent)' }}>
-                      <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Monitor size={14}/> Assistant Voice (TTS)</label>
+                      <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Monitor size={14}/> Assistant Voice (natural, offline)</label>
+                      <PiperVoicePicker value={piperVoice} onChange={setPiperVoice} language={whisperLanguage} />
+                    </div>
+
+                    <div className="space-y-3 mt-4 pt-4 border-t" style={{ borderColor: 'color-mix(in srgb, var(--ctp-surface0) 50%, transparent)' }}>
+                      <label className="text-xs font-bold text-ctp-surface2 uppercase ml-1 flex items-center gap-2"><Monitor size={14}/> System Voice (used for "system" and as fallback)</label>
                       
                       <div className="flex flex-col items-center justify-center gap-4 py-4 rounded-xl border bg-ctp-mantle/30" style={{ borderColor: 'var(--ctp-surface0)' }}>
                         <div className="flex items-center justify-center gap-8 w-full px-6">

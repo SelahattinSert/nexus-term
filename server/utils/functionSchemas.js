@@ -96,5 +96,33 @@ export const voiceFunctionSchemas = [
         required: ['profile_name', 'command']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'tunnel_port',
+      description: 'Exposes a local port to the internet via ngrok or cloudflared. Requires user approval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          port: { type: 'integer', description: 'The local port number to expose, e.g. 3000.' }
+        },
+        required: ['port']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'env_switch_profile',
+      description: 'Switches the active .env file to another profile (e.g. .env.production). Requires user approval.',
+      parameters: {
+        type: 'object',
+        properties: {
+          profile_name: { type: 'string', description: 'The profile name, e.g. "production" for .env.production.' }
+        },
+        required: ['profile_name']
+      }
+    }
   }
 ];

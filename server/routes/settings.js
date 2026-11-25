@@ -1,13 +1,13 @@
 import express from 'express';
 import { readConfig, writeConfig } from '../utils/configManager.js';
+import { setPersistEnabled } from '../services/blockStore.js';
 
 const router = express.Router();
 
 router.get('/', async (req, res) => {
   try {
-    const config = await readConfig();
-    res.json(config);
-  } catch (err) {
+    res.json(await readConfig());
+  } catch {
     res.status(500).json({ error: 'Failed to read configuration' });
   }
 });
@@ -15,8 +15,9 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const newConfig = await writeConfig(req.body);
+    if ('persistBlocks' in (req.body || {})) setPersistEnabled(newConfig.persistBlocks !== false);
     res.json({ success: true, config: newConfig });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: 'Failed to update configuration' });
   }
 });
