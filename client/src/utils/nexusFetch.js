@@ -28,6 +28,13 @@ export class NexusError extends Error {
   }
 }
 
+/** WebSocket base URL: same host as the page (works for any port / remote access); the Vite dev server talks to :4000. */
+export function getWsBase() {
+  if (import.meta.env.DEV) return 'ws://127.0.0.1:4000';
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${window.location.host}`;
+}
+
 function getApiBase() {
   return import.meta.env.DEV ? 'http://127.0.0.1:4000' : '';
 }

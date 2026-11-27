@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
-import { Plus, X, ChevronDown, Terminal, TerminalSquare, FileCode, Server } from 'lucide-react';
+import { Plus, X, ChevronDown, Terminal, TerminalSquare, FileCode, Server, Radio } from 'lucide-react';
 
 export default function TabBar() {
   const { sessions, editors = [], panes, focusedPane, setFocusedPane, createSession, removeSession, removeEditor, swapPane, addPane } = useStore();
+  const shares = useStore(state => state.shares);
+  const openShareDialog = useStore(state => state.openShareDialog);
+  const focusedIsTerminal = sessions.some(s => s.id === focusedPane);
+  const focusedShare = shares[focusedPane];
   const [availableShells, setAvailableShells] = useState([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -104,6 +108,15 @@ export default function TabBar() {
           title="Select Shell"
         >
           <ChevronDown size={14} />
+        </button>
+        <button
+          onClick={() => focusedIsTerminal && openShareDialog(focusedPane)}
+          disabled={!focusedIsTerminal}
+          className={`h-full px-3 flex items-center gap-1.5 text-xs border-l border-ctp-surface0 hover:bg-ctp-mantle disabled:opacity-40 ${focusedShare ? 'text-ctp-red' : 'text-ctp-subtext0 hover:text-ctp-text'}`}
+          title={focusedShare ? 'This terminal is shared live — manage' : 'Share this terminal live'}
+        >
+          <Radio size={14} className={focusedShare ? 'animate-pulse' : ''} />
+          {focusedShare ? `Live · ${focusedShare.guests?.length || 0}` : 'Share'}
         </button>
         
         {isDropdownOpen && (

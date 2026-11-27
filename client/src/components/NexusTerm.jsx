@@ -3,6 +3,8 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
+import { SerializeAddon } from '@xterm/addon-serialize';
+import { registerTerminal } from '../utils/termRegistry';
 import { Search, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useStore } from '../store';
 import { getTerminalTheme } from '../themes';
@@ -58,7 +60,10 @@ export default function NexusTerm({ sessionId }) {
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
     term.loadAddon(searchAddon);
+    const serializeAddon = new SerializeAddon();
+    term.loadAddon(serializeAddon);
     term.open(divRef.current);
+    const unregister = registerTerminal(sessionId, serializeAddon);
     
     searchAddonRef.current = searchAddon;
     fitAddonRef.current = fitAddon;
@@ -182,6 +187,7 @@ export default function NexusTerm({ sessionId }) {
       window.removeEventListener(`NEXUS_ACTION_${sessionId}`, actionListener);
       window.removeEventListener(`NEXUS_META_ACTION_${sessionId}`, metaActionListener);
       window.removeEventListener('nexus-execute-command', executeCommandListener);
+      unregister();
       term.dispose();
     };
   }, [sessionId, wsRef]);

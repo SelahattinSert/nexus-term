@@ -9,6 +9,9 @@ import SSHPanel from './components/SSHPanel';
 import PortManagerPanel from './components/PortManagerPanel';
 import EnvManagerPanel from './components/EnvManagerPanel';
 import MemoryPanel from './components/panels/MemoryPanel';
+import NotebookPanel from './components/panels/NotebookPanel';
+import AgentsPanel from './components/panels/AgentsPanel';
+import { useControlChannel } from './hooks/useControlChannel';
 import SSHProfileModal from './components/SSHProfileModal';
 import CommandPalette from './components/CommandPalette';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -16,11 +19,17 @@ import SystemMonitor from './components/SystemMonitor';
 import VoiceOrb from './components/VoiceOrb/VoiceOrb';
 import SettingsModal from './components/SettingsModal';
 import ApprovalModal from './components/ApprovalModal';
+import ShareDialog from './components/ShareDialog';
 import { useStore } from './store';
 import { applyTheme } from './themes';
 import { Toaster } from 'sonner';
 
 function App() {
+  useControlChannel();
+  const fetchShares = useStore(state => state.fetchShares);
+  useEffect(() => {
+    fetchShares().catch(() => {});
+  }, [fetchShares]);
   const [isSshModalOpen, setIsSshModalOpen] = useState(false);
   const [profileToEdit, setProfileToEdit] = useState(null);
 
@@ -138,6 +147,8 @@ function App() {
           <PortManagerPanel />
           <EnvManagerPanel />
           <MemoryPanel />
+          <NotebookPanel />
+          <AgentsPanel />
           <div className="flex-1 overflow-hidden relative">
             <TerminalGrid />
           </div>
@@ -145,6 +156,7 @@ function App() {
         <CommandPalette />
         <VoiceOrb />
         <ApprovalModal />
+        <ShareDialog />
         <SSHProfileModal isOpen={isSshModalOpen} onClose={() => setIsSshModalOpen(false)} profileToEdit={profileToEdit} />
         <SettingsModal />
       </div>

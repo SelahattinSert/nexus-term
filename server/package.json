@@ -1,44 +1,56 @@
 {
-  "name": "backend",
+  "name": "nexusterm",
   "version": "1.0.0",
-  "description": "",
+  "description": "Browser-native terminal with command notebooks and a safe MCP gateway for AI agents",
   "type": "module",
   "bin": {
-    "nexusterm": "./server.js"
+    "nexusterm": "./bin/nexusterm.js"
   },
   "files": [
+    "bin/",
     "server.js",
+    "app.js",
     "ptyManager.js",
     "gitMonitor.js",
     "pathScanner.js",
+    "routes/",
+    "services/",
+    "utils/",
+    "terminal/",
+    "mcp/",
     "public/",
     "scripts/"
   ],
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node bin/nexusterm.js",
     "dev": "nodemon server.js",
-    "test": "node --experimental-test-coverage --test"
+    "mcp": "node bin/nexusterm.js mcp",
+    "test": "node --import ./__tests__/setup.js --experimental-test-coverage --test",
+    "build:client": "npm --prefix ../client run build && node scripts/copy-client.js",
+    "prepack": "npm run build:client"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
-    "@xenova/transformers": "^2.17.2",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0",
     "dotenv": "^17.4.1",
     "express": "^5.2.1",
-    "ffmpeg-static": "^5.3.0",
-    "fluent-ffmpeg": "^2.1.3",
-    "multer": "^2.1.1",
+    "glob": "^7.2.3",
     "node-pty": "^1.1.0",
     "open": "^11.0.0",
     "openai": "^6.37.0",
     "ssh2": "^1.17.0",
-    "wavefile": "^11.0.0",
-    "whisper-node": "^1.1.1",
-    "ws": "^8.20.0"
+    "ws": "^8.20.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

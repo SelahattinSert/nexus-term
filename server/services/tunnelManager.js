@@ -89,6 +89,11 @@ export async function startTunnel(port, provider) {
       reject(new Error(`Failed to start tunnel: ${err.message}`));
     });
 
+    // Forget the tunnel when the provider process dies, so callers never get a dead URL back
+    child.on('exit', () => {
+      if (activeTunnels.get(port)?.process === child) activeTunnels.delete(port);
+    });
+
     // Fallback timeout in case it hangs and never outputs URL
     setTimeout(() => {
       if (!url) {

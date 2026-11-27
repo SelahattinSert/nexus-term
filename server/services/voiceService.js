@@ -1,87 +1,52 @@
-import { pipeline } from '@xenova/transformers';
 import OpenAI from 'openai';
 import { voiceFunctionSchemas } from '../utils/functionSchemas.js';
 import { readRawConfig } from '../utils/configManager.js';
-import ffmpeg from 'fluent-ffmpeg';
-import ffmpegStatic from 'ffmpeg-static';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import pkg from 'wavefile';
-const { WaveFile } = pkg;
 
 import { fingerprint, normalize as normalizeError } from './errorFingerprint.js';
 import { extractKeywords } from './keywordExtractor.js';
 import { findByFingerprint, findByKeywords, add as addMemory } from './errorMemoryStore.js';
 
-ffmpeg.setFfmpegPath(ffmpegStatic);
 
-let transcriber = null;
-let currentTranscriberModel = null;
-const globalConversationHistory = [];
 
-export async function transcribeAudio(audioFilePath) {
-  const config = await readRawConfig();
-  const targetModel = config.whisperModel || 'Xenova/whisper-base';
-  const targetLanguage = config.whisperLanguage || 'auto';
+// Conversation state per terminal session, so tabs do not leak context into each other.
+// { messages: [...OpenAI chat messages], pendingToolCallIds: string[] }
+const conversations = new Map();
+const MAX_HISTORY_MESSAGES = 30;
 
-  // Initialize or re-initialize the transcriber if the model changed
-  if (!transcriber || currentTranscriberModel !== targetModel) {
-    console.log(`[Voice API] Loading ${targetModel} model into memory...`);
-    transcriber = await pipeline('automatic-speech-recognition', targetModel);
-    currentTranscriberModel = targetModel;
+function getConversation(sessionId) {
+  const key = sessionId || 'global';
+  if (!conversations.has(key)) conversations.set(key, { messages: [], pendingToolCallIds: [] });
+  return conversations.get(key);
+}
+
+/**
+ * Trims old messages without ever splitting an assistant tool-call message from its tool results
+ * (the API rejects orphaned `tool` messages). Whole groups are dropped from the front, the newest
+ * group is always kept, and stray leading `tool` messages are removed.
+ */
+export function trimHistory(conversation, max = MAX_HISTORY_MESSAGES) {
+  const msgs = conversation.messages;
+  while (msgs.length && msgs[0].role === 'tool') msgs.shift();
+  while (msgs.length > max) {
+    // size of the first group: an assistant message with tool_calls plus the tool results that follow
+    let size = 1;
+    if (msgs[0].role === 'assistant' && msgs[0].tool_calls?.length) {
+      while (size < msgs.length && msgs[size].role === 'tool') size++;
+    }
+    if (size >= msgs.length) break; // never drop the newest group
+    msgs.splice(0, size);
   }
-  
-  return new Promise((resolve, reject) => {
-    const wavFilePath = audioFilePath + '.wav';
-    
-    // Convert WebM to 16kHz WAV format using ffmpeg
-    ffmpeg(audioFilePath)
-      .output(wavFilePath)
-      .outputOptions([
-        '-ar 16000', // Sample rate 16kHz
-        '-ac 1',     // Mono channel
-        '-c:a pcm_s16le' // 16-bit PCM
-      ])
-      .on('end', async () => {
-        try {
-          // Read the WAV file
-          const buffer = fs.readFileSync(wavFilePath);
-          const wav = new WaveFile(buffer);
-          wav.toBitDepth('32f'); // Convert to 32-bit float
-          wav.toSampleRate(16000); // Ensure 16kHz
-          let audioData = wav.getSamples();
-          
-          if (Array.isArray(audioData)) {
-            if (audioData.length > 0) audioData = audioData[0]; // Take first channel if it's an array of channels
-            else audioData = new Float32Array(0);
-          }
+}
 
-          console.log(`[Voice API] Sending audio data to local Whisper model (${targetModel}, Lang: ${targetLanguage})...`);
-          
-          const transcriptionOptions = {};
-          if (targetLanguage !== 'auto' && !targetModel.endsWith('.en')) {
-            transcriptionOptions.language = targetLanguage;
-            transcriptionOptions.task = 'transcribe';
-          }
-
-          const result = await transcriber(audioData, transcriptionOptions);
-          
-          // Cleanup the converted wav file
-          if (fs.existsSync(wavFilePath)) fs.unlinkSync(wavFilePath);
-          
-          resolve(result.text);
-        } catch (err) {
-          if (fs.existsSync(wavFilePath)) fs.unlinkSync(wavFilePath);
-          reject(err);
-        }
-      })
-      .on('error', (err) => {
-        if (fs.existsSync(wavFilePath)) fs.unlinkSync(wavFilePath);
-        reject(err);
-      })
-      .run();
-  });
+function parseToolArguments(raw) {
+  try {
+    return JSON.parse(raw || '{}');
+  } catch {
+    return {};
+  }
 }
 
 import { getSessionDetails } from '../ptyManager.js';
@@ -129,7 +94,32 @@ If resolved, describe what was the error and what command(s) fixed it in 1 or 2 
   }
 }
 
-export async function resolveIntent(text, sessionId = null) {
+/**
+ * @param {string} text user utterance, or (isToolResult) a description of what happened to the previous actions
+ * @param {string|null} sessionId terminal session the request belongs to
+ * @param {{isToolResult?: boolean}} options
+ */
+/**
+ * Wraps a spoken request so the model knows it came from local speech recognition and may contain
+ * phonetic mistakes ("en pi em" for npm). Corrections already applied in the browser are listed.
+ */
+export function describeSpokenRequest(text, { raw, corrections } = {}) {
+  const lines = [
+    text,
+    '',
+    '[Note: this request was spoken and transcribed by an offline speech recognizer. Words that sound alike may be wrong,',
+    'especially command, file and project names. Prefer the closest matching command or name from the context above;',
+    'if the intent is genuinely unclear, ask a short clarifying question with text_response instead of guessing.]',
+  ];
+  if (raw && raw !== text) lines.push(`[Raw transcript before automatic correction: "${String(raw).slice(0, 500)}"]`);
+  if (Array.isArray(corrections) && corrections.length) {
+    lines.push(`[Automatic corrections: ${corrections.slice(0, 10).map(c => `"${c.from}" → "${c.to}"`).join(', ')}]`);
+  }
+  return lines.join('\n');
+}
+
+export async function resolveIntent(text, sessionId = null, { isToolResult = false, speech = null } = {}) {
+  if (speech && !isToolResult) text = describeSpokenRequest(text, speech);
   const config = await readRawConfig();
   
   const provider = config.provider || 'openai';
@@ -264,8 +254,7 @@ Try the remembered solution first before attempting other approaches.\n\n`;
       }).join("\n");
       
       const portActionDocs = `
-If the user asks to expose, share, or tunnel a local port (e.g., "tunnel port 3000"), use \`execute_ui_action\` with \`action: "tunnel_port||[PORT_NUMBER]"\`.
-For example: \`{"type": "execute_ui_action", "action": "tunnel_port||3000"}\`
+If the user asks to expose, share, or tunnel a local port (e.g., "tunnel port 3000"), call the \`tunnel_port\` tool with the port number. The user must approve it.
 `;
       contextStr += portActionDocs;
     }
@@ -304,8 +293,7 @@ For example: \`{"type": "execute_ui_action", "action": "tunnel_port||3000"}\`
       }
       
       contextStr += `
-If the user asks to switch the active environment profile (e.g., "switch env to production"), use \`execute_ui_action\` with \`action: "env_switch_profile||[PROFILE_NAME]"\`.
-For example: \`{"type": "execute_ui_action", "action": "env_switch_profile||production"}\`
+If the user asks to switch the active environment profile (e.g., "switch env to production"), call the \`env_switch_profile\` tool with the profile name.
 *Heuristic*: If you encounter an error in the terminal like "API_KEY is not defined", check the Defined Keys above. If it's missing, suggest switching env profiles or adding the key.
 `;
     }
@@ -321,7 +309,7 @@ For example: \`{"type": "execute_ui_action", "action": "env_switch_profile||prod
       contextStr += "\n\n## 🌐 Available SSH Connections\n" + sshProfiles.map(p => 
         `- "${p.name}": ${p.username}@${p.host} (tags: ${p.tags ? p.tags.join(', ') : 'none'})`
       ).join("\n") + "\n\n" +
-      "To connect to an SSH server, use `execute_ui_action` with `action: 'ssh_connect||[PROFILE_NAME]'`. For example: `{\"type\": \"execute_ui_action\", \"action\": \"ssh_connect||Production API\"}`. The frontend will intercept this and establish the connection.";
+      "To open an SSH terminal, call the `ssh_connect` tool with the profile name. To run a command on a server, call `ssh_run_on` (the user must approve it).";
     }
   } catch (err) {
     console.error('[Voice API] Could not load SSH profiles into prompt:', err.message);
@@ -329,10 +317,27 @@ For example: \`{"type": "execute_ui_action", "action": "env_switch_profile||prod
   
   const systemPrompt = memoryPrompt + persona + contextStr;
 
+  const conversation = getConversation(sessionId);
+
+  // Answer the previous turn's tool calls first (the API requires a result for every tool_call_id)
+  if (conversation.pendingToolCallIds.length) {
+    for (const id of conversation.pendingToolCallIds) {
+      conversation.messages.push({
+        role: 'tool',
+        tool_call_id: id,
+        content: isToolResult ? text : 'No result was reported for this action.',
+      });
+    }
+    conversation.pendingToolCallIds = [];
+    if (!isToolResult) conversation.messages.push({ role: 'user', content: text });
+  } else {
+    conversation.messages.push({ role: 'user', content: isToolResult ? `System Note: ${text}` : text });
+  }
+
+  trimHistory(conversation);
   const messages = [
     { role: 'system', content: systemPrompt },
-    ...globalConversationHistory,
-    { role: 'user', content: text }
+    ...conversation.messages,
   ];
 
   const response = await openai.chat.completions.create({
@@ -343,16 +348,13 @@ For example: \`{"type": "execute_ui_action", "action": "env_switch_profile||prod
   });
 
   const message = response.choices[0].message;
-  
-  // Save to history
-  globalConversationHistory.push({ role: 'user', content: text });
-  
+
   if (message.tool_calls && message.tool_calls.length > 0) {
-    const actions = message.tool_calls.map(tc => {
-      const action = JSON.parse(tc.function.arguments);
-      // Fallback for older schema if it wrapped it in {type, ...}
-      return action.type ? action : { type: tc.function.name, ...action };
-    });
+    conversation.messages.push({ role: 'assistant', content: message.content || null, tool_calls: message.tool_calls });
+    conversation.pendingToolCallIds = message.tool_calls.map(tc => tc.id);
+    trimHistory(conversation);
+
+    const actions = message.tool_calls.map(tc => ({ ...parseToolArguments(tc.function.arguments), type: tc.function.name }));
 
     // Track commands in active session
     if (sessionId && activeErrorSessions.has(sessionId)) {
@@ -364,14 +366,15 @@ For example: \`{"type": "execute_ui_action", "action": "env_switch_profile||prod
           session.commandChain.push(a.command);
         } else if (a.type === 'execute_ui_action' && a.action) {
           session.commandChain.push(a.action);
+        } else if (a.type === 'tunnel_port' && a.port) {
+          session.commandChain.push(`tunnel_port ${a.port}`);
+        } else if (a.type === 'env_switch_profile' && a.profile_name) {
+          session.commandChain.push(`env_switch_profile ${a.profile_name}`);
         }
       });
     }
     
-    const actionStrings = actions.map(a => a.action || a.command || a.response);
-    globalConversationHistory.push({ role: 'system', content: `System Note: In the previous turn, you executed these actions: ${actionStrings.join(', ')}` });
-    if (globalConversationHistory.length > 20) globalConversationHistory.splice(0, globalConversationHistory.length - 20);
-    
+
     const resultObj = { type: 'multi_action', actions };
     if (matchedMemoryMetadata) {
       resultObj.memoryUsed = matchedMemoryMetadata;
@@ -379,8 +382,8 @@ For example: \`{"type": "execute_ui_action", "action": "env_switch_profile||prod
     return resultObj;
   }
   
-  globalConversationHistory.push({ role: 'assistant', content: message.content || '' });
-  if (globalConversationHistory.length > 20) globalConversationHistory.splice(0, globalConversationHistory.length - 20);
+  conversation.messages.push({ role: 'assistant', content: message.content || '' });
+  trimHistory(conversation);
 
   // --- Success Detection & Memory Writing (Step D) ---
   if (sessionId && activeErrorSessions.has(sessionId)) {

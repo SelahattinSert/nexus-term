@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { getNexusHome } from '../utils/paths.js';
 import { readConfig, readRawConfig, writeConfig } from '../utils/configManager.js';
 
-const CONFIG_DIR = path.join(os.homedir(), '.nexusterm');
+const CONFIG_DIR = getNexusHome();
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 describe('configManager service', () => {

@@ -101,14 +101,15 @@ export const createSshSlice = (set, get) => ({
     }));
 
     try {
-      // Use the generic /api/terminals endpoint but pass the sshProfile
+      // Only the profile id is sent: the server loads the stored (encrypted) credentials itself.
+      // The browser copy has masked secrets and must never be used to connect.
       const token = new URLSearchParams(window.location.search).get('token');
       const sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString();
       
       const res = await fetch(`/api/terminals?token=${token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, shell: 'ssh', sshProfile: profile })
+        body: JSON.stringify({ sessionId, shell: 'ssh', sshProfileId: profile.id })
       });
 
       if (res.ok) {

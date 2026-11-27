@@ -1,158 +1,37 @@
-#!/usr/bin/env node
-import 'dotenv/config';
-import express from 'express';
+import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import crypto from 'crypto';
 import path from 'path';
-import fs from 'fs';
 import os from 'os';
 import open from 'open';
 import { fileURLToPath } from 'url';
-import { handleConnection, getAvailableShells, createTerminal } from './ptyManager.js';
+import { createApp, isAllowedRequest, hasProxyHeaders, isLoopbackHost } from './app.js';
+import { handleConnection, listSessions } from './ptyManager.js';
+import { handleGuestConnection } from './services/shareService.js';
+import { addControlClient, broadcast } from './services/eventBus.js';
+import { listPending } from './services/approvalService.js';
+import * as blockStore from './services/blockStore.js';
+import { readRawConfig } from './utils/configManager.js';
+import { getMcpToken, writeServerInfo, safeEqual } from './mcp/token.js';
 
-const app = express();
-const TOKEN = crypto.randomBytes(16).toString('hex');
+dotenv.config({ quiet: true });
 
-// ROOT boundary: User can only navigate under their own home directory
-// On Windows, the env variable is USERPROFILE
-const ROOT = (process.env.HOME || process.env.USERPROFILE || process.cwd());
-
-// --- Static Files (Frontend Build) ---
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const clientDistPath = path.join(__dirname, '..', 'client', 'dist');
+const TOKEN = crypto.randomBytes(16).toString('hex');
+const PORT = Number(process.env.PORT) || 4000;
+const HOST = process.env.HOST || '127.0.0.1';
+const mcpHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST;
+const getMcpUrl = () => `http://${mcpHost.includes(':') && !mcpHost.startsWith('[') ? `[${mcpHost}]` : mcpHost}:${PORT}/mcp`;
 
-// Priority: client/dist (for development) > server/public (for distribution)
-if (fs.existsSync(clientDistPath)) {
-  console.log(`\x1b[34m[NexusTerm] Serving frontend from development path: ${clientDistPath}\x1b[0m`);
-  app.use(express.static(clientDistPath));
-} else {
-  app.use(express.static(path.join(__dirname, 'public')));
-}
+// The stdio bridge command shown in the Agents panel works without a global install
+const stdio = { command: process.execPath, args: [path.join(__dirname, 'bin', 'nexusterm.js'), 'mcp'] };
 
-app.use(express.json());
+const app = createApp({ token: TOKEN, bindHost: HOST, port: PORT, getMcpUrl, stdio });
 
-// --- Auth Middleware (For all /api routes) ---
-function requireToken(req, res, next) {
-  const authHeader = req.headers.authorization;
-  const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-  const token = req.query.token || req.headers['x-access-token'] || bearerToken;
-
-  if (token === TOKEN) return next();
-  res.status(401).json({ error: 'Unauthorized: Invalid or missing token' });
-}
-
-// --- Terminal API ---
-import voiceRoute from './routes/voice.js';
-import settingsRoute from './routes/settings.js';
-import sshRoute from './routes/ssh.js';
-import portsRoute from './routes/ports.js';
-import envRoute from './routes/env.js';
-import memoryRoute from './routes/memory.js';
-
-app.use('/api/voice', requireToken, voiceRoute);
-app.use('/api/settings', requireToken, settingsRoute);
-app.use('/api/ssh', requireToken, sshRoute);
-app.use('/api/ports', requireToken, portsRoute);
-app.use('/api/env', requireToken, envRoute);
-app.use('/api/memory', requireToken, memoryRoute);
-
-app.get('/api/shells', requireToken, (req, res) => {
-  const shells = getAvailableShells();
-  res.json({ shells });
-});
-
-app.post('/api/terminals', requireToken, (req, res) => {
-  const { sessionId, shell, sshProfile } = req.body;
-  if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
-  
-  createTerminal(sessionId, { shell, sshProfile });
-  res.json({ success: true, sessionId });
-});
-
-import { promises as fsPromises } from 'fs';
-
-// --- File Manager API ---
-import { getGitStatus, fetchAndGetGitStatus } from './gitMonitor.js';
-
-app.get('/api/git/status', requireToken, (req, res) => {
-  const requestedPath = req.query.path || ROOT;
-  getGitStatus(requestedPath, (status) => {
-    res.json(status || { branch: null });
-  });
-});
-
-app.post('/api/git/fetch', requireToken, (req, res) => {
-  const requestedPath = req.query.path || ROOT;
-  fetchAndGetGitStatus(requestedPath, (status) => {
-    res.json(status || { branch: null });
-  });
-});
-
-app.get('/api/files', requireToken, async (req, res) => {
-  const requestedPath = req.query.path || ROOT;
-  const safePath = path.resolve(requestedPath);
-
-  // Path Traversal Protection
-  const relativePath = path.relative(ROOT, safePath);
-  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-    return res.status(403).json({ error: 'Forbidden: Cannot navigate outside of root.' });
-  }
-
-  try {
-    const files = (await fsPromises.readdir(safePath, { withFileTypes: true }))
-      .map(dirent => ({ 
-        name: dirent.name, 
-        isDir: dirent.isDirectory(),
-        path: path.join(safePath, dirent.name).replace(/\\/g, '/')
-      }));
-    res.json(files);
-  } catch (err) {
-    res.json([]); // Read error: return empty list, prevent crash
-  }
-});
-
-// --- File Content API ---
-app.get('/api/file/content', requireToken, async (req, res) => {
-  const requestedPath = req.query.path;
-  if (!requestedPath) return res.status(400).json({ error: 'path is required' });
-  
-  const safePath = path.resolve(requestedPath);
-  
-  // Path Traversal Protection
-  const relativePath = path.relative(ROOT, safePath);
-  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-    return res.status(403).json({ error: 'Forbidden: Cannot navigate outside of root.' });
-  }
-
-  try {
-    const content = await fsPromises.readFile(safePath, 'utf8');
-    res.json({ content });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/file/content', requireToken, async (req, res) => {
-  const requestedPath = req.body.path;
-  const content = req.body.content;
-  if (!requestedPath || content === undefined) return res.status(400).json({ error: 'path and content are required' });
-
-  const safePath = path.resolve(requestedPath);
-  
-  // Path Traversal Protection
-  const relativePath = path.relative(ROOT, safePath);
-  if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-    return res.status(403).json({ error: 'Forbidden: Cannot navigate outside of root.' });
-  }
-
-  try {
-    await fsPromises.writeFile(safePath, content, 'utf8');
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// Load persisted settings that affect background services
+readRawConfig().then(config => blockStore.setPersistEnabled(config.persistBlocks !== false)).catch(() => {});
+getMcpToken(); // create the MCP token on first launch
 
 // --- CPU/RAM Monitoring (os module, no native dependencies) ---
 let lastCpuInfo = os.cpus();
@@ -170,66 +49,75 @@ function getCpuUsage() {
   });
 
   lastCpuInfo = currentCpuInfo;
-  return Math.round((1 - totalIdle / totalTick) * 100);
+  return totalTick > 0 ? Math.round((1 - totalIdle / totalTick) * 100) : 0;
 }
 
-// --- HTTP + WebSocket Server (single server.listen, no conflict) ---
+// --- HTTP + WebSocket Server ---
 const server = createServer(app);
 const wss = new WebSocketServer({ noServer: true });
+// Live-share guests are untrusted: small messages only
+const guestWss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
 
-// WSS Upgrade: Token validation + failsafe against parse errors
 server.on('upgrade', (request, socket, head) => {
   try {
-    const baseUrl = `http://${request.headers.host || 'localhost'}`;
-    const url = new URL(request.url, baseUrl);
+    const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
 
-    if (url.searchParams.get('token') !== TOKEN) {
+    // Live-share guests: authenticated by their share token (checked in handleGuestConnection).
+    // They may arrive through LAN or a tunnel, so only require that a browser Origin matches the Host.
+    if (url.searchParams.has('share')) {
+      const origin = request.headers.origin;
+      let sameOrigin = !origin;
+      try { sameOrigin = sameOrigin || new URL(origin).host === request.headers.host; } catch { sameOrigin = false; }
+      if (!sameOrigin) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        return socket.destroy();
+      }
+      return guestWss.handleUpgrade(request, socket, head, (ws) => handleGuestConnection(ws, url));
+    }
+
+    if ((isLoopbackHost(HOST) && hasProxyHeaders(request.headers))
+      || !safeEqual(url.searchParams.get('token') || '', TOKEN)
+      || !isAllowedRequest({ host: request.headers.host, origin: request.headers.origin }, { bindHost: HOST })) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
       return socket.destroy();
     }
 
     wss.handleUpgrade(request, socket, head, (ws) => {
-      wss.emit('connection', ws, request);
+      wss.emit('connection', ws, request, url);
     });
-  } catch (err) {
-    // Malformed URL or unexpected parse error: close connection silently
+  } catch {
     socket.destroy();
   }
 });
 
-wss.on('connection', (ws, req) => {
-  handleConnection(ws, req, { getCpuUsage, TOKEN });
+wss.on('connection', (ws, req, url) => {
+  if (url.searchParams.get('channel') === 'control') {
+    // One per open browser window: global events (approvals, blocks, agent sessions)
+    addControlClient(ws);
+    ws.send('NEXUS_META:' + JSON.stringify({ type: 'APPROVALS_SNAPSHOT', payload: listPending() }));
+    // Lets a freshly opened window show tabs for sessions agents created while no window was open
+    ws.send('NEXUS_META:' + JSON.stringify({ type: 'SESSIONS_SNAPSHOT', payload: listSessions() }));
+    return;
+  }
+  handleConnection(ws, req);
 });
 
 // --- System Monitor Broadcast ---
 setInterval(() => {
-  const cpu = getCpuUsage();
   const totalMem = os.totalmem();
-  const freeMem = os.freemem();
-  const usedMem = totalMem - freeMem;
-  const ramPercent = Math.round((usedMem / totalMem) * 100);
-  
-  const payload = JSON.stringify({
-    type: 'SYSTEM_STATS',
-    payload: { cpu, ram: ramPercent, usedMem, totalMem }
-  });
-  
-  wss.clients.forEach(client => {
-    if (client.readyState === 1 /* WebSocket.OPEN */) {
-      client.send(`NEXUS_META:${payload}`);
-    }
-  });
+  const usedMem = totalMem - os.freemem();
+  broadcast('SYSTEM_STATS', { cpu: getCpuUsage(), ram: Math.round((usedMem / totalMem) * 100), usedMem, totalMem });
 }, 2000);
 
-// --- Start Server ---
-const PORT = process.env.PORT || 4000;
-const HOST = process.env.HOST || '127.0.0.1';
-
 server.listen(PORT, HOST, async () => {
-  const url = `http://${HOST}:${PORT}/?token=${TOKEN}`;
+  writeServerInfo({ host: HOST, port: PORT, mcpUrl: getMcpUrl() });
+  const displayHost = HOST === '0.0.0.0' ? '127.0.0.1' : HOST;
+  const url = `http://${displayHost}:${PORT}/?token=${TOKEN}`;
   console.log('\x1b[32m🚀 NexusTerm started!\x1b[0m');
   console.log(`Interface: \x1b[36m${url}\x1b[0m`);
+  console.log(`MCP endpoint for agents: \x1b[36m${getMcpUrl()}\x1b[0m (setup instructions in the Agents panel)`);
 
+  if (process.env.NEXUSTERM_NO_OPEN) return;
   try {
     await open(url);
   } catch {

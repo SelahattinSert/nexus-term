@@ -4,6 +4,9 @@ import { createSshSlice } from './store/sshStore';
 import { createPortSlice } from './store/portStore';
 import { createEnvSlice } from './store/envStore';
 import { createMemorySlice } from './store/memoryStore';
+import { createAgentSlice } from './store/agentStore';
+import { createNotebookSlice } from './store/notebookStore';
+import { createShareSlice } from './store/shareStore';
 
 export const useStore = create(
   persist(
@@ -12,6 +15,9 @@ export const useStore = create(
       ...createPortSlice(set, get),
       ...createEnvSlice(set, get),
       ...createMemorySlice(set, get),
+      ...createAgentSlice(set, get),
+      ...createNotebookSlice(set, get),
+      ...createShareSlice(set, get),
 
       // Array of all sessions (background and visible)
       // session: { id: string, pwd: string, gitStatus: { branch, changedFiles } | null }
@@ -124,13 +130,15 @@ export const useStore = create(
 
       createSession: (options = {}) => set((state) => {
         const newId = options.id || crypto.randomUUID();
+        if (state.sessions.some(s => s.id === newId)) return state;
         const newSession = { 
           id: newId, 
           pwd: '~', 
           gitStatus: null,
           name: options.name || null,
           isSsh: options.isSsh || false,
-          sshProfileId: options.sshProfileId || null 
+          sshProfileId: options.sshProfileId || null,
+          createdBy: options.createdBy || 'ui'
         };
         
         // If we have less than 4 visible panes, show it immediately, else add to background
@@ -144,7 +152,8 @@ export const useStore = create(
         return {
           sessions: [...state.sessions, newSession],
           panes: newPanes,
-          focusedPane: newId, // Focus the newly created session
+          // Sessions opened by agents appear without stealing keyboard focus
+          focusedPane: options.focus === false && state.focusedPane ? state.focusedPane : newId,
           paneShells: newPaneShells
         };
       }),

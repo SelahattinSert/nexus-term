@@ -12,9 +12,12 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.2",
+    "@mintplex-labs/piper-tts-web": "^1.0.5",
     "@monaco-editor/react": "^4.7.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
+    "@xterm/addon-serialize": "^0.14.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^6.0.0",
     "framer-motion": "^12.38.0",

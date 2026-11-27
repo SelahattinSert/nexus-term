@@ -1,63 +1,33 @@
 import fs from 'fs/promises';
 import fsSync from 'fs';
-import path from 'path';
 import os from 'os';
-import crypto from 'crypto';
 import { Client } from 'ssh2';
+import { nexusPath, ensurePrivateDir, writePrivateFile } from '../utils/paths.js';
+import { MASK, encryptSecret, decryptSecret } from '../utils/secretBox.js';
 
-const SSH_DIR = path.join(os.homedir(), '.nexusterm');
-const SSH_PROFILES_FILE = path.join(SSH_DIR, 'ssh-profiles.json');
+const profilesFile = () => nexusPath('ssh-profiles.json');
 
-// --- Encryption Utility ---
-// Generate a machine-specific key so if ssh-profiles.json is copied to another machine, 
-// passwords cannot be decrypted.
-const ALGORITHM = 'aes-256-gcm';
-const getEncryptionKey = () => {
-  const secretInfo = os.hostname() + '_' + os.userInfo().username;
-  return crypto.scryptSync(secretInfo, 'nexus_salt', 32);
-};
-
-function encrypt(text) {
-  if (!text) return text;
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(ALGORITHM, getEncryptionKey(), iv);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  const authTag = cipher.getAuthTag();
-  return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
-}
-
-function decrypt(hash) {
-  if (!hash || !hash.includes(':')) return hash;
+function decrypt(value) {
   try {
-    const parts = hash.split(':');
-    if (parts.length < 3) return hash; // Legacy fallback
-    const [ivHex, tagHex, encryptedHex] = parts;
-    const iv = Buffer.from(ivHex, 'hex');
-    const authTag = Buffer.from(tagHex, 'hex');
-    const decipher = crypto.createDecipheriv(ALGORITHM, getEncryptionKey(), iv);
-    decipher.setAuthTag(authTag);
-    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
+    return decryptSecret(value);
   } catch (err) {
-    console.error('[SSH Service] Decryption failed (Machine changed?):', err.message);
-    throw new Error('Failed to decrypt SSH password. This usually happens if the profile file was moved from another computer.');
+    console.error('[SSH Service] Decryption failed:', err.message);
+    throw new Error('Failed to decrypt SSH secret. This usually happens if the profile file was moved from another computer.');
   }
 }
 
 // --- Profile Management ---
 export async function getProfiles() {
   try {
-    await fs.mkdir(SSH_DIR, { recursive: true });
+    await ensurePrivateDir();
     try {
-      const data = await fs.readFile(SSH_PROFILES_FILE, 'utf8');
+      const data = await fs.readFile(profilesFile(), 'utf8');
       const profiles = JSON.parse(data);
       // Never send real passwords to the frontend
       return profiles.map(p => ({
         ...p,
-        password: p.password ? '••••••••' : undefined,
-        passphrase: p.passphrase ? '••••••••' : undefined
+        password: p.password ? MASK : undefined,
+        passphrase: p.passphrase ? MASK : undefined
       }));
     } catch (e) {
       if (e.code === 'ENOENT') return [];
@@ -71,30 +41,36 @@ export async function getProfiles() {
 
 async function getRawProfiles() {
   try {
-    const data = await fs.readFile(SSH_PROFILES_FILE, 'utf8');
+    const data = await fs.readFile(profilesFile(), 'utf8');
     return JSON.parse(data);
   } catch (e) {
     return [];
   }
 }
 
+/** Returns the stored profile (secrets still encrypted) or null. Server-side use only. */
+export async function getRawProfileById(id) {
+  const profiles = await getRawProfiles();
+  return profiles.find(p => p.id === id) || null;
+}
+
 export async function saveProfile(profileData) {
-  await fs.mkdir(SSH_DIR, { recursive: true });
+  await ensurePrivateDir();
   const profiles = await getRawProfiles();
   
   const existingIndex = profiles.findIndex(p => p.id === profileData.id);
   
   // Encrypt sensitive fields before saving
   const secureProfile = { ...profileData };
-  if (secureProfile.password && secureProfile.password !== '••••••••') {
-    secureProfile.password = encrypt(secureProfile.password);
-  } else if (secureProfile.password === '••••••••' && existingIndex !== -1) {
+  if (secureProfile.password && secureProfile.password !== MASK) {
+    secureProfile.password = encryptSecret(secureProfile.password);
+  } else if (secureProfile.password === MASK && existingIndex !== -1) {
     secureProfile.password = profiles[existingIndex].password; // keep existing encrypted
   }
 
-  if (secureProfile.passphrase && secureProfile.passphrase !== '••••••••') {
-    secureProfile.passphrase = encrypt(secureProfile.passphrase);
-  } else if (secureProfile.passphrase === '••••••••' && existingIndex !== -1) {
+  if (secureProfile.passphrase && secureProfile.passphrase !== MASK) {
+    secureProfile.passphrase = encryptSecret(secureProfile.passphrase);
+  } else if (secureProfile.passphrase === MASK && existingIndex !== -1) {
     secureProfile.passphrase = profiles[existingIndex].passphrase; // keep existing encrypted
   }
 
@@ -104,14 +80,14 @@ export async function saveProfile(profileData) {
     profiles.push(secureProfile);
   }
 
-  await fs.writeFile(SSH_PROFILES_FILE, JSON.stringify(profiles, null, 2), 'utf8');
+  await writePrivateFile(profilesFile(), JSON.stringify(profiles, null, 2));
   return secureProfile;
 }
 
 export async function deleteProfile(id) {
   const profiles = await getRawProfiles();
   const filtered = profiles.filter(p => p.id !== id);
-  await fs.writeFile(SSH_PROFILES_FILE, JSON.stringify(filtered, null, 2), 'utf8');
+  await writePrivateFile(profilesFile(), JSON.stringify(filtered, null, 2));
 }
 
 // --- Connection Testing ---
@@ -152,6 +128,11 @@ export function buildSshConfig(profile) {
     username: profile.username,
   };
 
+  // A masked placeholder means the caller passed a client-side copy of the profile. Never send it as a credential.
+  if (profile.password === MASK || profile.passphrase === MASK) {
+    throw new Error('Refusing to use a masked SSH profile. Load the stored profile by id instead.');
+  }
+
   if (profile.authMethod === 'password') {
     config.password = decrypt(profile.password);
   } else if (profile.authMethod === 'key') {
@@ -172,4 +153,3 @@ export function buildSshConfig(profile) {
   return config;
 }
 
-// We will handle the full `connectAndBridgePty` in ptyManager.js or here later.

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store';
+import { getWsBase } from '../utils/nexusFetch';
 
 export function useTerminalWebsocket(sessionId, termInstance, fitAddonRef, isReadyRef) {
   const wsRef = useRef(null);
@@ -9,7 +10,7 @@ export function useTerminalWebsocket(sessionId, termInstance, fitAddonRef, isRea
     if (!token || !termInstance) return;
 
     const term = termInstance;
-    const wsUrl = `ws://127.0.0.1:4000?token=${token}&sessionId=${sessionId}`;
+    const wsUrl = `${getWsBase()}/?token=${encodeURIComponent(token)}&sessionId=${encodeURIComponent(sessionId)}`;
 
     const trySendReady = () => {
       if (!isReadyRef.current && wsRef.current && wsRef.current.readyState === WebSocket.OPEN && term.cols && term.rows) {
@@ -31,6 +32,8 @@ export function useTerminalWebsocket(sessionId, termInstance, fitAddonRef, isRea
     const initConnection = async () => {
       try {
         const shellPath = useStore.getState().paneShells?.[sessionId];
+        // SSH tabs reconnect with their profile id (after a server restart the session is recreated)
+        const sshProfileId = useStore.getState().sessions.find(s => s.id === sessionId)?.sshProfileId || undefined;
         await fetch(`/api/terminals?token=${token}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -38,7 +41,8 @@ export function useTerminalWebsocket(sessionId, termInstance, fitAddonRef, isRea
             sessionId, 
             cols: term.cols || 80, 
             rows: term.rows || 24, 
-            shell: shellPath 
+            shell: shellPath,
+            sshProfileId
           })
         });
       } catch (err) {
@@ -65,7 +69,7 @@ export function useTerminalWebsocket(sessionId, termInstance, fitAddonRef, isRea
 
             if (meta.type === 'DIR_CHANGE') updateSession(sessionId, { pwd: meta.payload });
             if (meta.type === 'GIT_STATUS') updateSession(sessionId, { gitStatus: meta.payload });
-            if (meta.type === 'ERROR') addError(sessionId, meta.rule);
+            if (meta.type === 'ERROR') addError(sessionId, meta.rule, meta.errorId);
             if (meta.type === 'EXECUTABLES') setExecutables(meta.payload);
             if (meta.type === 'SYSTEM_STATS') setSystemStats(meta.payload);
           } catch { /* Malformed JSON: ignore */ }
